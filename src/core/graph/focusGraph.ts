@@ -1,5 +1,6 @@
 import type { Family, GedcomModel, Person } from '../gedcom/types'
 import { getFocusPersonDetails } from '../gedcom/selectors'
+import { inferredSiblingsOf, parentIdsOf } from '../gedcom/relationships'
 
 export interface GraphNode {
   id: string
@@ -89,26 +90,7 @@ function childIdsOf(personId: string, model: GedcomModel): string[] {
 }
 
 function siblingsOf(personId: string, model: GedcomModel): string[] {
-  const person = model.persons[personId]
-  if (!person) return []
-  return uniqueStrings(
-    person.familyAsChildIds.flatMap((familyId) => {
-      const family = model.families[familyId]
-      return family ? family.childIds : []
-    }),
-  ).filter((id) => id !== personId)
-}
-
-function parentIdsOf(personId: string, model: GedcomModel): string[] {
-  const person = model.persons[personId]
-  if (!person) return []
-  return uniqueStrings(
-    person.familyAsChildIds.flatMap((familyId) => {
-      const family = model.families[familyId]
-      if (!family) return []
-      return [family.husbandId, family.wifeId].filter((id): id is string => Boolean(id))
-    }),
-  )
+  return inferredSiblingsOf(personId, model).map((sibling) => sibling.id)
 }
 
 function placeAtLevel(levelById: Map<string, number>, id: string, level: number): void {
@@ -132,6 +114,7 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
   const focusId = details.person.id
   const levelById = new Map<string, number>()
   const siblingIds = new Set<string>()
+  const siblingRelationshipById = new Map<string, 'full' | 'half' | 'unknown'>()
   const spouseLikeIds = new Set<string>()
   const collateralIds = new Set<string>()
 
@@ -140,9 +123,10 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
   const parentIds = parentIdsOf(focusId, model)
   parentIds.forEach((id) => placeAtLevel(levelById, id, -1))
 
-  siblingsOf(focusId, model).forEach((id) => {
-    siblingIds.add(id)
-    placeAtLevel(levelById, id, 0)
+  inferredSiblingsOf(focusId, model).forEach((sibling) => {
+    siblingIds.add(sibling.id)
+    siblingRelationshipById.set(sibling.id, sibling.relationship)
+    placeAtLevel(levelById, sibling.id, 0)
   })
 
   const directSpouseIds = uniqueStrings(
@@ -239,10 +223,19 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
       else if (collateralIds.has(id)) kind = 'relative'
       else kind = 'relative'
 
+      const baseDetail = lifeDetail(person)
+      const siblingRelationship = siblingRelationshipById.get(id)
+      const siblingLabel =
+        siblingRelationship === 'full'
+          ? 'Full sibling'
+          : siblingRelationship === 'half'
+            ? 'Half sibling'
+            : undefined
+
       nodes.push({
         id,
         label: person.displayName,
-        detail: lifeDetail(person),
+        detail: [baseDetail, siblingLabel].filter(Boolean).join(' • ') || undefined,
         x: startX + index * COL_GAP,
         y: levelToY.get(level) ?? PADDING_Y,
         kind,

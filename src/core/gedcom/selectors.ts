@@ -1,4 +1,5 @@
 import type { Family, GedcomEvent, GedcomModel, Person } from './types'
+import { inferredSiblingsOf } from './relationships'
 
 export interface PersonListItem {
   id: string
@@ -107,12 +108,25 @@ export function getFocusPersonDetails(
     .filter((parent) => parent.id !== person.id)
     .map(toRelatedPerson)
 
-  const siblings = uniquePeople(
-    model,
-    parentFamilies.flatMap((family) => family.childIds),
-  )
-    .filter((sibling) => sibling.id !== person.id)
-    .map(toRelatedPerson)
+  const siblings = inferredSiblingsOf(person.id, model).flatMap((sibling) => {
+    const related = model.persons[sibling.id]
+    if (!related) return []
+
+    const baseSubtitle = lifeSubtitle(related)
+    const relationshipLabel =
+      sibling.relationship === 'full'
+        ? 'Full sibling'
+        : sibling.relationship === 'half'
+          ? 'Half sibling'
+          : undefined
+
+    return [
+      {
+        ...toRelatedPerson(related),
+        subtitle: [baseSubtitle, relationshipLabel].filter(Boolean).join(' • ') || undefined,
+      },
+    ]
+  })
 
   const children = uniquePeople(model, spouseFamilies.flatMap((family) => family.childIds)).map(toRelatedPerson)
 
