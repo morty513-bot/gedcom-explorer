@@ -18,7 +18,11 @@ function nodeTooltip(node: { label: string; detail?: string; kind: string }): st
           ? 'Descendant'
           : node.kind === 'sibling'
             ? 'Sibling'
-            : 'Partner'
+            : node.kind === 'spouse'
+              ? 'Partner'
+              : node.kind === 'overflow'
+                ? 'Hidden relatives'
+                : 'Relative'
 
   return [node.label, roleLabel, node.detail].filter(Boolean).join(' • ')
 }
@@ -113,11 +117,15 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
           {graph.nodes.map((node) => (
             <g
               key={node.id}
-              className={`graph-node ${node.kind}`}
-              role="button"
-              tabIndex={0}
-              onClick={() => onSelectPerson(node.id)}
+              className={`graph-node ${node.kind} ${node.selectable === false ? 'readonly' : ''}`}
+              role={node.selectable === false ? undefined : 'button'}
+              tabIndex={node.selectable === false ? -1 : 0}
+              onClick={() => {
+                if (node.selectable === false) return
+                onSelectPerson(node.id)
+              }}
               onKeyDown={(event) => {
+                if (node.selectable === false) return
                 if (event.key === 'Enter' || event.key === ' ') onSelectPerson(node.id)
               }}
             >

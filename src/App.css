@@ -198,8 +198,18 @@ button {
 }
 
 .graph-node.spouse rect,
-.graph-node.sibling rect {
+.graph-node.sibling rect,
+.graph-node.relative rect {
   fill: #fcfbff;
+}
+
+.graph-node.overflow rect {
+  fill: #f3f4f9;
+  stroke-dasharray: 5 3;
+}
+
+.graph-node.readonly {
+  cursor: default;
 }
 
 .graph-node-name {

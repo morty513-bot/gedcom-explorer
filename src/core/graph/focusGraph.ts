@@ -7,7 +7,8 @@ export interface GraphNode {
   detail?: string
   x: number
   y: number
-  kind: 'focus' | 'ancestor' | 'sibling' | 'spouse' | 'descendant'
+  kind: 'focus' | 'ancestor' | 'sibling' | 'spouse' | 'relative' | 'descendant' | 'overflow'
+  selectable?: boolean
 }
 
 export interface GraphEdge {
@@ -30,6 +31,17 @@ const ROW_GAP = 130
 const COL_GAP = 230
 const PADDING_X = 120
 const PADDING_Y = 90
+const OVERFLOW_PREFIX = '__overflow__'
+
+const LEVEL_CAPS: Record<number, number> = {
+  [-3]: 8,
+  [-2]: 10,
+  [-1]: 12,
+  [0]: 16,
+  [1]: 12,
+  [2]: 10,
+  [3]: 8,
+}
 
 function lifeDetail(person: Person): string | undefined {
   const birth = person.events.find((event) => event.type === 'BIRT')?.date
@@ -65,41 +77,87 @@ function orderedIds(ids: Iterable<string>, model: GedcomModel): string[] {
   return Array.from(ids).sort((a, b) => personSortKey(model.persons[a], a).localeCompare(personSortKey(model.persons[b], b)))
 }
 
+function childIdsOf(personId: string, model: GedcomModel): string[] {
+  const person = model.persons[personId]
+  if (!person) return []
+  return uniqueStrings(
+    person.familyAsSpouseIds.flatMap((familyId) => {
+      const family = model.families[familyId]
+      return family ? family.childIds : []
+    }),
+  )
+}
+
+function siblingsOf(personId: string, model: GedcomModel): string[] {
+  const person = model.persons[personId]
+  if (!person) return []
+  return uniqueStrings(
+    person.familyAsChildIds.flatMap((familyId) => {
+      const family = model.families[familyId]
+      return family ? family.childIds : []
+    }),
+  ).filter((id) => id !== personId)
+}
+
+function parentIdsOf(personId: string, model: GedcomModel): string[] {
+  const person = model.persons[personId]
+  if (!person) return []
+  return uniqueStrings(
+    person.familyAsChildIds.flatMap((familyId) => {
+      const family = model.families[familyId]
+      if (!family) return []
+      return [family.husbandId, family.wifeId].filter((id): id is string => Boolean(id))
+    }),
+  )
+}
+
+function placeAtLevel(levelById: Map<string, number>, id: string, level: number): void {
+  const current = levelById.get(id)
+  if (current === undefined) {
+    levelById.set(id, level)
+    return
+  }
+
+  const currentAbs = Math.abs(current)
+  const nextAbs = Math.abs(level)
+  if (nextAbs < currentAbs || (nextAbs === currentAbs && level < current)) {
+    levelById.set(id, level)
+  }
+}
+
 export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGraph | undefined {
   const details = getFocusPersonDetails(model, personId)
   if (!details) return undefined
 
   const focusId = details.person.id
+  const levelById = new Map<string, number>()
+  const siblingIds = new Set<string>()
+  const spouseLikeIds = new Set<string>()
+  const collateralIds = new Set<string>()
 
-  const parentFamilies = details.person.familyAsChildIds
-    .map((familyId) => model.families[familyId])
-    .filter((family): family is Family => Boolean(family))
+  placeAtLevel(levelById, focusId, 0)
 
-  const spouseFamilies = details.person.familyAsSpouseIds
-    .map((familyId) => model.families[familyId])
-    .filter((family): family is Family => Boolean(family))
+  const parentIds = parentIdsOf(focusId, model)
+  parentIds.forEach((id) => placeAtLevel(levelById, id, -1))
 
-  const parentIds = uniqueStrings(
-    parentFamilies.flatMap((family) => [family.husbandId, family.wifeId].filter((id): id is string => Boolean(id))),
-  )
+  siblingsOf(focusId, model).forEach((id) => {
+    siblingIds.add(id)
+    placeAtLevel(levelById, id, 0)
+  })
 
-  const siblingIds = uniqueStrings(parentFamilies.flatMap((family) => family.childIds)).filter((id) => id !== focusId)
-
-  const grandparentIds = uniqueStrings(
-    parentIds.flatMap((parentId) => {
-      const parent = model.persons[parentId]
-      if (!parent) return []
-      return parent.familyAsChildIds.flatMap((familyId) => {
-        const family = model.families[familyId]
-        if (!family) return []
-        return [family.husbandId, family.wifeId].filter((id): id is string => Boolean(id))
-      })
+  const directSpouseIds = uniqueStrings(
+    details.person.familyAsSpouseIds.flatMap((familyId) => {
+      const family = model.families[familyId]
+      return family ? spouseIdsInFamily(family, focusId) : []
     }),
-  ).filter((id) => !parentIds.includes(id))
+  )
+  directSpouseIds.forEach((id) => {
+    spouseLikeIds.add(id)
+    placeAtLevel(levelById, id, 0)
+  })
 
-  const childIds = uniqueStrings(spouseFamilies.flatMap((family) => family.childIds))
-
-  const spouseIds = uniqueStrings(spouseFamilies.flatMap((family) => spouseIdsInFamily(family, focusId)))
+  const childIds = childIdsOf(focusId, model)
+  childIds.forEach((id) => placeAtLevel(levelById, id, 1))
 
   const childCoparentIds = uniqueStrings(
     childIds.flatMap((childId) => {
@@ -107,77 +165,108 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
       if (!child) return []
       return child.familyAsChildIds.flatMap((familyId) => {
         const family = model.families[familyId]
-        if (!family) return []
-        return spouseIdsInFamily(family, childId)
+        return family ? spouseIdsInFamily(family, childId) : []
       })
     }),
   ).filter((id) => id !== focusId)
 
-  const grandchildIds = uniqueStrings(
-    childIds.flatMap((childId) => {
-      const child = model.persons[childId]
-      if (!child) return []
-      return child.familyAsSpouseIds.flatMap((familyId) => {
-        const family = model.families[familyId]
-        if (!family) return []
-        return family.childIds
-      })
-    }),
-  )
+  childCoparentIds.forEach((id) => {
+    spouseLikeIds.add(id)
+    placeAtLevel(levelById, id, 0)
+  })
 
-  const generationRows = [
-    { level: -2, ids: orderedIds(grandparentIds, model), kind: 'ancestor' as const },
-    { level: -1, ids: orderedIds(parentIds, model), kind: 'ancestor' as const },
-    {
-      level: 0,
-      ids: orderedIds(uniqueStrings([focusId, ...siblingIds, ...spouseIds, ...childCoparentIds]), model),
-      kind: undefined,
-    },
-    { level: 1, ids: orderedIds(childIds, model), kind: 'descendant' as const },
-    { level: 2, ids: orderedIds(grandchildIds, model), kind: 'descendant' as const },
-  ]
+  let ancestorFrontier = [...parentIds]
+  for (let level = -2; level >= -3; level -= 1) {
+    const next = uniqueStrings(ancestorFrontier.flatMap((id) => parentIdsOf(id, model))).filter((id) => id !== focusId)
+    next.forEach((id) => placeAtLevel(levelById, id, level))
+    ancestorFrontier = next
+  }
 
-  const dedupedRows = generationRows
-    .map((row) => ({ ...row, ids: uniqueStrings(row.ids) }))
-    .filter((row) => row.ids.length > 0)
+  let descendantFrontier = [...childIds]
+  for (let level = 2; level <= 3; level += 1) {
+    const next = uniqueStrings(descendantFrontier.flatMap((id) => childIdsOf(id, model))).filter((id) => id !== focusId)
+    next.forEach((id) => placeAtLevel(levelById, id, level))
+    descendantFrontier = next
+  }
 
-  if (!dedupedRows.some((row) => row.ids.includes(focusId))) return undefined
+  const parentSiblingIds = uniqueStrings(parentIds.flatMap((id) => siblingsOf(id, model))).filter((id) => !parentIds.includes(id))
+  parentSiblingIds.forEach((id) => {
+    collateralIds.add(id)
+    placeAtLevel(levelById, id, -1)
+  })
 
+  const cousinIds = uniqueStrings(parentSiblingIds.flatMap((id) => childIdsOf(id, model))).filter((id) => id !== focusId)
+  cousinIds.forEach((id) => {
+    collateralIds.add(id)
+    placeAtLevel(levelById, id, 0)
+  })
+
+  const relativeIdsByLevel = new Map<number, string[]>()
+  Array.from(levelById.entries()).forEach(([id, level]) => {
+    if (!model.persons[id]) return
+    const existing = relativeIdsByLevel.get(level) ?? []
+    existing.push(id)
+    relativeIdsByLevel.set(level, existing)
+  })
+
+  const orderedLevels = Array.from(relativeIdsByLevel.keys()).sort((a, b) => a - b)
   const levelToY = new Map<number, number>()
-  dedupedRows.forEach((row, rowIndex) => {
-    levelToY.set(row.level, PADDING_Y + rowIndex * ROW_GAP)
+  orderedLevels.forEach((level, rowIndex) => {
+    levelToY.set(level, PADDING_Y + rowIndex * ROW_GAP)
   })
 
   const nodes: GraphNode[] = []
 
-  dedupedRows.forEach((row) => {
-    const startX = PADDING_X + (row.ids.length === 1 ? 0 : -((row.ids.length - 1) * COL_GAP) / 2)
-    row.ids.forEach((id, index) => {
+  orderedLevels.forEach((level) => {
+    const sortedIds = orderedIds(relativeIdsByLevel.get(level) ?? [], model)
+    const cap = LEVEL_CAPS[level] ?? 10
+    const visibleIds = sortedIds.slice(0, cap)
+    const hiddenCount = Math.max(0, sortedIds.length - visibleIds.length)
+
+    const rowSlots = hiddenCount > 0 ? visibleIds.length + 1 : visibleIds.length
+    const startX = PADDING_X + (rowSlots <= 1 ? 0 : -((rowSlots - 1) * COL_GAP) / 2)
+
+    visibleIds.forEach((id, index) => {
       const person = model.persons[id]
       if (!person) return
 
       let kind: GraphNode['kind']
       if (id === focusId) kind = 'focus'
-      else if (row.level < 0) kind = 'ancestor'
-      else if (row.level > 0) kind = 'descendant'
-      else if (siblingIds.includes(id)) kind = 'sibling'
-      else kind = 'spouse'
+      else if (level < 0) kind = 'ancestor'
+      else if (level > 0) kind = 'descendant'
+      else if (siblingIds.has(id)) kind = 'sibling'
+      else if (spouseLikeIds.has(id)) kind = 'spouse'
+      else if (collateralIds.has(id)) kind = 'relative'
+      else kind = 'relative'
 
       nodes.push({
         id,
         label: person.displayName,
         detail: lifeDetail(person),
         x: startX + index * COL_GAP,
-        y: levelToY.get(row.level) ?? PADDING_Y,
+        y: levelToY.get(level) ?? PADDING_Y,
         kind,
+        selectable: true,
       })
     })
+
+    if (hiddenCount > 0) {
+      nodes.push({
+        id: `${OVERFLOW_PREFIX}:${level}`,
+        label: `+${hiddenCount} more`,
+        detail: 'Not shown to keep this view readable',
+        x: startX + visibleIds.length * COL_GAP,
+        y: levelToY.get(level) ?? PADDING_Y,
+        kind: 'overflow',
+        selectable: false,
+      })
+    }
   })
 
-  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const selectableIds = new Set(nodes.filter((node) => node.selectable !== false).map((node) => node.id))
 
   const familyEdges: GraphEdge[] = []
-  const includePerson = (id?: string) => Boolean(id && byId.has(id))
+  const includePerson = (id?: string) => Boolean(id && selectableIds.has(id))
 
   Object.values(model.families).forEach((family) => {
     const parentIdsInGraph = [family.husbandId, family.wifeId].filter((id): id is string => includePerson(id))
@@ -195,9 +284,8 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
 
     childIdsInGraph.forEach((childId) => {
       if (parentIdsInGraph.length === 0) return
-      const anchorParentId = parentIdsInGraph[0]
       familyEdges.push({
-        from: anchorParentId,
+        from: parentIdsInGraph[0],
         to: childId,
         parents: parentIdsInGraph,
         kind: 'parent-child',
