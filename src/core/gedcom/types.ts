@@ -11,6 +11,7 @@ export interface Person {
   displayName: string
   givenName?: string
   surname?: string
+  alternateNames: string[]
   sex?: string
   events: GedcomEvent[]
   familyAsChildIds: string[]

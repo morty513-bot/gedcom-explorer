@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { parseGedcom } from './core/gedcom/parseGedcom'
-import { getPerson, toPersonList } from './core/gedcom/selectors'
+import { toPersonList } from './core/gedcom/selectors'
 import type { GedcomModel } from './core/gedcom/types'
 import { FocusPerson } from './features/people/FocusPerson'
 import { PersonList } from './features/people/PersonList'
+import { FamilyTreeGraph } from './features/tree/FamilyTreeGraph'
 import { GedcomUpload } from './features/upload/GedcomUpload'
 import './App.css'
 
@@ -16,7 +17,7 @@ function App() {
   const [error, setError] = useState<string>()
 
   const personList = useMemo(() => toPersonList(model), [model])
-  const focusedPerson = getPerson(model, selectedPersonId)
+  const hasData = personList.length > 0
 
   const handleLoaded = (content: string, sourceName: string) => {
     try {
@@ -36,12 +37,12 @@ function App() {
     <main className="app">
       <header>
         <h1>GEDCOM Explorer</h1>
-        <p className="muted">Upload a GEDCOM file, then pick a person to focus.</p>
+        <p className="muted">Browse a focused family graph and person details from your GEDCOM file.</p>
         {fileName ? <p className="file-pill">Loaded: {fileName}</p> : null}
         {error ? <p className="error">{error}</p> : null}
       </header>
 
-      <GedcomUpload onLoaded={handleLoaded} />
+      <GedcomUpload hasData={hasData} onLoaded={handleLoaded} />
 
       <section className="layout-grid">
         <PersonList
@@ -49,8 +50,14 @@ function App() {
           selectedPersonId={selectedPersonId}
           onSelect={setSelectedPersonId}
         />
-        <FocusPerson person={focusedPerson} />
+        <FocusPerson model={model} personId={selectedPersonId} onSelectPerson={setSelectedPersonId} />
       </section>
+
+      <FamilyTreeGraph
+        model={model}
+        focusedPersonId={selectedPersonId}
+        onSelectPerson={setSelectedPersonId}
+      />
     </main>
   )
 }

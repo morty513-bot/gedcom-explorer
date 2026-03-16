@@ -35,6 +35,7 @@ function createPerson(id: string): Person {
   return {
     id,
     displayName: id,
+    alternateNames: [],
     events: [],
     familyAsChildIds: [],
     familyAsSpouseIds: [],
@@ -100,9 +101,17 @@ export function parseGedcom(text: string): GedcomModel {
         switch (line.tag) {
           case 'NAME': {
             const nameParts = splitGedcomName(line.value)
-            currentPerson.displayName = nameParts.displayName ?? currentPerson.displayName
-            currentPerson.givenName = nameParts.givenName
-            currentPerson.surname = nameParts.surname
+            const normalized = nameParts.displayName ?? line.value?.trim()
+
+            if (normalized && currentPerson.displayName !== currentPerson.id) {
+              if (!currentPerson.alternateNames.includes(normalized)) {
+                currentPerson.alternateNames.push(normalized)
+              }
+            } else {
+              currentPerson.displayName = normalized ?? currentPerson.displayName
+              currentPerson.givenName = nameParts.givenName
+              currentPerson.surname = nameParts.surname
+            }
             break
           }
           case 'SEX':

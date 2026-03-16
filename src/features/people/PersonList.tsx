@@ -11,7 +11,7 @@ export function PersonList({ people, selectedPersonId, onSelect }: Props) {
     return (
       <section className="panel">
         <h2>People</h2>
-        <p className="muted">No people loaded yet.</p>
+        <p className="muted">No people loaded yet. Upload a GEDCOM file to begin.</p>
       </section>
     )
   }

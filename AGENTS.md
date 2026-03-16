@@ -4,9 +4,8 @@
 Build a mobile+desktop friendly GEDCOM explorer web app with:
 - Upload GEDCOM
 - Focused family-tree view around a selected person
-- Pan/zoom graph view
-- Detail panel for selected person (events, names, dates)
-- Indicators for hidden/not-expanded relationships
+- Detail panel for selected person (events, names, relationships)
+- Compact upload/replace flow once data is loaded
 
 ## Engineering rules
 - TypeScript only (no JS files for app logic)
@@ -17,7 +16,6 @@ Build a mobile+desktop friendly GEDCOM explorer web app with:
 
 ## Dev process
 - Keep `README.md` current
-- Add tests for parser/graph shaping logic when introduced
 - Run `npm run build` before milestone updates
 - Keep commits focused and descriptive
 - This repository is public: never commit secrets/tokens, private datasets, or personally identifying family records
@@ -26,7 +24,7 @@ Build a mobile+desktop friendly GEDCOM explorer web app with:
 
 ## Current architecture
 - `src/core/gedcom/*`: line parser + normalized GEDCOM model + selectors
-- `src/core/graph/*`: reserved for focus-subgraph + hidden-connection indicators
-- `src/features/upload/*`: GEDCOM upload/import flow
-- `src/features/people/*`: person list + focus detail view
-- `src/features/tree/*`: planned tree canvas and controls
+- `src/core/graph/*`: focused subgraph generation (parents/siblings/spouses/children)
+- `src/features/upload/*`: GEDCOM upload/import + compact replace flow
+- `src/features/people/*`: people list + detail view
+- `src/features/tree/*`: SVG tree canvas + click-to-focus nodes

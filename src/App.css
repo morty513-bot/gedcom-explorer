@@ -1,5 +1,5 @@
 .app {
-  max-width: 960px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 1.25rem;
   display: grid;
@@ -19,7 +19,7 @@ header h1 {
 
 .layout-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 1rem;
 }
 
@@ -77,11 +77,6 @@ header h1 {
   font-weight: 600;
 }
 
-.events {
-  margin: 0.75rem 0 0;
-  padding-left: 1.1rem;
-}
-
 input[type='file'] {
   display: none;
 }
@@ -91,4 +86,103 @@ button {
   border-radius: 8px;
   background: #fff;
   padding: 0.5rem 0.8rem;
+}
+
+.upload-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.upload-panel.compact {
+  padding: 0.75rem 1rem;
+}
+
+.upload-compact-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.small-button {
+  font-size: 0.86rem;
+  padding: 0.35rem 0.6rem;
+}
+
+.secondary {
+  background: #f4f4f8;
+}
+
+.focus-details {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.facts-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.8rem;
+  margin: 0;
+}
+
+.facts-grid dt {
+  font-weight: 600;
+}
+
+.facts-grid dd {
+  margin: 0;
+}
+
+.detail-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1rem;
+}
+
+.linkish {
+  border: none;
+  padding: 0;
+  color: #3d33a6;
+  text-decoration: underline;
+  background: none;
+  cursor: pointer;
+}
+
+.graph-panel h2 {
+  margin-top: 0;
+}
+
+.graph-scroll {
+  overflow: auto;
+}
+
+.graph-edge {
+  stroke: #b7bad8;
+  stroke-width: 1.5;
+  fill: none;
+}
+
+.graph-edge-label {
+  fill: #626788;
+  font-size: 11px;
+  text-anchor: middle;
+}
+
+.graph-node rect {
+  stroke: #bfc3df;
+  stroke-width: 1.2;
+  fill: #fafaff;
+}
+
+.graph-node.focus rect {
+  fill: #ece9ff;
+  stroke: #6f5de8;
+}
+
+.graph-node-name {
+  font-size: 12px;
+  fill: #1d2035;
+}
+
+.graph-node-detail {
+  font-size: 10px;
+  fill: #616682;
 }
