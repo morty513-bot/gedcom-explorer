@@ -24,6 +24,64 @@ function family(id: string, overrides: Partial<Family> = {}): Family {
 }
 
 describe('buildFocusGraph sibling rows', () => {
+  it('keeps siblings clustered ahead of cousin clusters on the focus generation row', () => {
+    const model: GedcomModel = {
+      persons: {
+        GP_A: person('GP_A', 'Grandparent A', { familyAsSpouseIds: ['F_GP_A'] }),
+        GP_B: person('GP_B', 'Grandparent B', { familyAsSpouseIds: ['F_GP_A'] }),
+        GP_C: person('GP_C', 'Grandparent C', { familyAsSpouseIds: ['F_GP_C'] }),
+        GP_D: person('GP_D', 'Grandparent D', { familyAsSpouseIds: ['F_GP_C'] }),
+
+        PARENT_1: person('PARENT_1', 'Parent One', { familyAsChildIds: ['F_GP_A'], familyAsSpouseIds: ['F_MAIN'] }),
+        PARENT_2: person('PARENT_2', 'Parent Two', { familyAsChildIds: ['F_GP_C'], familyAsSpouseIds: ['F_MAIN'] }),
+
+        AUNT_A: person('AUNT_A', 'Aunt A', { familyAsChildIds: ['F_GP_A'], familyAsSpouseIds: ['F_AUNT_A'] }),
+        AUNT_B: person('AUNT_B', 'Aunt B', { familyAsChildIds: ['F_GP_A'], familyAsSpouseIds: ['F_AUNT_B'] }),
+
+        FOCUS: person('FOCUS', 'Focus', { familyAsChildIds: ['F_MAIN'] }),
+        SIB_1: person('SIB_1', 'Sibling One', { familyAsChildIds: ['F_MAIN'] }),
+        SIB_2: person('SIB_2', 'Sibling Two', { familyAsChildIds: ['F_MAIN'] }),
+
+        COUSIN_A1: person('COUSIN_A1', 'Cousin A1', { familyAsChildIds: ['F_AUNT_A'] }),
+        COUSIN_A2: person('COUSIN_A2', 'Cousin A2', { familyAsChildIds: ['F_AUNT_A'] }),
+        COUSIN_B1: person('COUSIN_B1', 'Cousin B1', { familyAsChildIds: ['F_AUNT_B'] }),
+      },
+      families: {
+        F_GP_A: family('F_GP_A', { husbandId: 'GP_A', wifeId: 'GP_B', childIds: ['PARENT_1', 'AUNT_A', 'AUNT_B'] }),
+        F_GP_C: family('F_GP_C', { husbandId: 'GP_C', wifeId: 'GP_D', childIds: ['PARENT_2'] }),
+        F_MAIN: family('F_MAIN', { husbandId: 'PARENT_1', wifeId: 'PARENT_2', childIds: ['FOCUS', 'SIB_1', 'SIB_2'] }),
+        F_AUNT_A: family('F_AUNT_A', { husbandId: 'AUNT_A', childIds: ['COUSIN_A1', 'COUSIN_A2'] }),
+        F_AUNT_B: family('F_AUNT_B', { wifeId: 'AUNT_B', childIds: ['COUSIN_B1'] }),
+      },
+    }
+
+    const graph = buildFocusGraph(model, 'FOCUS')
+    expect(graph).toBeDefined()
+
+    const yById = new Map((graph?.nodes ?? []).map((node) => [node.id, node.y]))
+    const focusY = yById.get('FOCUS')
+    expect(focusY).toBeDefined()
+
+    const levelZeroNodes = (graph?.nodes ?? [])
+      .filter((node) => node.y === focusY && node.selectable !== false)
+      .sort((a, b) => a.x - b.x)
+      .map((node) => node.id)
+
+    const lastSiblingIndex = Math.max(levelZeroNodes.indexOf('SIB_1'), levelZeroNodes.indexOf('SIB_2'))
+    const firstCousinIndex = Math.min(
+      levelZeroNodes.indexOf('COUSIN_A1'),
+      levelZeroNodes.indexOf('COUSIN_A2'),
+      levelZeroNodes.indexOf('COUSIN_B1'),
+    )
+
+    expect(lastSiblingIndex).toBeGreaterThanOrEqual(0)
+    expect(firstCousinIndex).toBeGreaterThan(lastSiblingIndex)
+
+    const cousinA2Index = levelZeroNodes.indexOf('COUSIN_A2')
+    const cousinB1Index = levelZeroNodes.indexOf('COUSIN_B1')
+    expect(cousinA2Index).toBeLessThan(cousinB1Index)
+  })
+
   it('includes inferred half siblings for the focus person', () => {
     const model: GedcomModel = {
       persons: {

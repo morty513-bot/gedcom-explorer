@@ -78,6 +78,17 @@ function orderedIds(ids: Iterable<string>, model: GedcomModel): string[] {
   return Array.from(ids).sort((a, b) => personSortKey(model.persons[a], a).localeCompare(personSortKey(model.persons[b], b)))
 }
 
+function focusCenteredSiblingOrder(focusId: string, siblingIds: string[], model: GedcomModel): string[] {
+  const sortedSiblings = orderedIds(siblingIds, model)
+  const midpoint = Math.floor(sortedSiblings.length / 2)
+  return [...sortedSiblings.slice(0, midpoint), focusId, ...sortedSiblings.slice(midpoint)]
+}
+
+function firstSortedMatch(ids: Iterable<string>, model: GedcomModel): string | undefined {
+  const sorted = orderedIds(ids, model)
+  return sorted[0]
+}
+
 function childIdsOf(personId: string, model: GedcomModel): string[] {
   const person = model.persons[personId]
   if (!person) return []
@@ -185,6 +196,24 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
     placeAtLevel(levelById, id, 0)
   })
 
+  const focusParentIdSet = new Set(parentIds)
+  const parentSiblingIdSet = new Set(parentSiblingIds)
+
+  const parentSiblingPrimaryFocusParent = new Map<string, string>()
+  parentSiblingIds.forEach((id) => {
+    const sharedParent = firstSortedMatch(parentIdsOf(id, model).filter((parentId) => focusParentIdSet.has(parentId)), model)
+    if (sharedParent) parentSiblingPrimaryFocusParent.set(id, sharedParent)
+  })
+
+  const focusParentOrder = orderedIds(parentIds, model)
+  const focusParentOrderIndex = new Map(focusParentOrder.map((id, index) => [id, index]))
+
+  const cousinBranchAnchorById = new Map<string, string>()
+  cousinIds.forEach((id) => {
+    const anchorParentSibling = firstSortedMatch(parentIdsOf(id, model).filter((parentId) => parentSiblingIdSet.has(parentId)), model)
+    if (anchorParentSibling) cousinBranchAnchorById.set(id, anchorParentSibling)
+  })
+
   const relativeIdsByLevel = new Map<number, string[]>()
   Array.from(levelById.entries()).forEach(([id, level]) => {
     if (!model.persons[id]) return
@@ -202,7 +231,57 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
   const nodes: GraphNode[] = []
 
   orderedLevels.forEach((level) => {
-    const sortedIds = orderedIds(relativeIdsByLevel.get(level) ?? [], model)
+    const levelIds = relativeIdsByLevel.get(level) ?? []
+
+    const sortedIds =
+      level === 0
+        ? (() => {
+            const levelIdSet = new Set(levelIds)
+
+            const siblingClusterIds = Array.from(levelIdSet).filter((id) => id === focusId || siblingIds.has(id))
+            const siblingOnlyIds = siblingClusterIds.filter((id) => id !== focusId)
+            const coreSiblingOrder = focusCenteredSiblingOrder(focusId, siblingOnlyIds, model).filter((id) => levelIdSet.has(id))
+
+            const spouseClusterIds = orderedIds(
+              Array.from(levelIdSet).filter(
+                (id) => id !== focusId && !siblingIds.has(id) && spouseLikeIds.has(id),
+              ),
+              model,
+            )
+
+            const cousinClusterIds = Array.from(levelIdSet).filter((id) => cousinBranchAnchorById.has(id))
+            const cousinClusterByAnchor = new Map<string, string[]>()
+            cousinClusterIds.forEach((id) => {
+              const anchorId = cousinBranchAnchorById.get(id)
+              if (!anchorId) return
+              const existing = cousinClusterByAnchor.get(anchorId) ?? []
+              existing.push(id)
+              cousinClusterByAnchor.set(anchorId, existing)
+            })
+
+            const orderedCousinAnchors = Array.from(cousinClusterByAnchor.keys()).sort((a, b) => {
+              const aPrimaryParent = parentSiblingPrimaryFocusParent.get(a)
+              const bPrimaryParent = parentSiblingPrimaryFocusParent.get(b)
+              const aParentIndex = aPrimaryParent ? (focusParentOrderIndex.get(aPrimaryParent) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER
+              const bParentIndex = bPrimaryParent ? (focusParentOrderIndex.get(bPrimaryParent) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER
+              if (aParentIndex !== bParentIndex) return aParentIndex - bParentIndex
+              return personSortKey(model.persons[a], a).localeCompare(personSortKey(model.persons[b], b))
+            })
+
+            const orderedCousinClusters = orderedCousinAnchors.flatMap((anchorId) =>
+              orderedIds(cousinClusterByAnchor.get(anchorId) ?? [], model),
+            )
+
+            const consumedIds = new Set([...coreSiblingOrder, ...spouseClusterIds, ...orderedCousinClusters])
+            const remainingIds = orderedIds(
+              Array.from(levelIdSet).filter((id) => !consumedIds.has(id)),
+              model,
+            )
+
+            return [...coreSiblingOrder, ...spouseClusterIds, ...orderedCousinClusters, ...remainingIds]
+          })()
+        : orderedIds(levelIds, model)
+
     const cap = LEVEL_CAPS[level] ?? 10
     const visibleIds = sortedIds.slice(0, cap)
     const hiddenCount = Math.max(0, sortedIds.length - visibleIds.length)
