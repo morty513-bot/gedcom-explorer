@@ -3,7 +3,7 @@
 A TypeScript web app for exploring GEDCOM family data with a focus-first family tree UX.
 
 ## Status
-Milestone 2 (focused graph + richer person details + compact upload flow) implemented.
+Milestone 3 (generation-layered graph layout + broader local family expansion) implemented.
 
 ## What it does now
 - Upload a GEDCOM file directly in the browser
@@ -14,17 +14,18 @@ Milestone 2 (focused graph + richer person details + compact upload flow) implem
   - Alternate names
   - Spouses (including marriage info where present)
   - Parents, Children, Siblings
-- Renders a centered focused family graph around the selected person:
-  - Parents
-  - Siblings
-  - Spouses / marriages
-  - Children
+- Renders a generation-layered focused family graph around the selected person:
+  - Ancestors above (parents + grandparents where available)
+  - Focus person centered with siblings/spouses on the same generation row
+  - Descendants below (children + grandchildren where available)
+  - Spouse links and parent→child links shown separately for readability
+  - Click any node to re-focus the graph on that person
 - Keeps upload UI compact after a GEDCOM is loaded via a small **Upload/Replace GEDCOM** button
 
 ## Architecture
 Frontend-first (no backend):
 - `src/core/gedcom/*`: parser + normalized model + selectors for details/relationships
-- `src/core/graph/*`: focused graph shaping for UI rendering
+- `src/core/graph/*`: focused graph shaping + generation layering and local family expansion logic
 - `src/features/upload/*`: upload and compact replace flow
 - `src/features/people/*`: people list + detail pane
 - `src/features/tree/*`: SVG focused graph rendering

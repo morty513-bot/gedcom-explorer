@@ -154,10 +154,18 @@ button {
   overflow: auto;
 }
 
+.graph-scroll svg {
+  display: block;
+}
+
 .graph-edge {
   stroke: #b7bad8;
   stroke-width: 1.5;
   fill: none;
+}
+
+.graph-edge-spouse {
+  stroke-dasharray: 5 3;
 }
 
 .graph-edge-label {
@@ -172,9 +180,26 @@ button {
   fill: #fafaff;
 }
 
+.graph-node {
+  cursor: pointer;
+}
+
 .graph-node.focus rect {
   fill: #ece9ff;
   stroke: #6f5de8;
+}
+
+.graph-node.ancestor rect {
+  fill: #f7f8ff;
+}
+
+.graph-node.descendant rect {
+  fill: #f8fff7;
+}
+
+.graph-node.spouse rect,
+.graph-node.sibling rect {
+  fill: #fcfbff;
 }
 
 .graph-node-name {

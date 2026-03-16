@@ -1,4 +1,4 @@
-import type { GedcomModel } from '../gedcom/types'
+import type { Family, GedcomModel, Person } from '../gedcom/types'
 import { getFocusPersonDetails } from '../gedcom/selectors'
 
 export interface GraphNode {
@@ -7,13 +7,14 @@ export interface GraphNode {
   detail?: string
   x: number
   y: number
-  kind: 'focus' | 'parent' | 'sibling' | 'spouse' | 'child'
+  kind: 'focus' | 'ancestor' | 'sibling' | 'spouse' | 'descendant'
 }
 
 export interface GraphEdge {
   from: string
   to: string
   label?: string
+  kind: 'parent-child' | 'spouse'
 }
 
 export interface FocusGraph {
@@ -24,84 +25,192 @@ export interface FocusGraph {
 }
 
 const NODE_W = 200
-const ROW_GAP = 120
-const COL_GAP = 220
+const ROW_GAP = 130
+const COL_GAP = 230
+const PADDING_X = 120
+const PADDING_Y = 90
 
-function rowY(row: number): number {
-  return 80 + row * ROW_GAP
+function lifeDetail(person: Person): string | undefined {
+  const birth = person.events.find((event) => event.type === 'BIRT')?.date
+  const death = person.events.find((event) => event.type === 'DEAT')?.date
+  const parts = [birth ? `Born ${birth}` : undefined, death ? `Died ${death}` : undefined].filter(Boolean)
+  return parts.length > 0 ? parts.join(' • ') : undefined
 }
 
-function spreadX(index: number, total: number): number {
-  const center = 500
-  if (total <= 1) return center
-  const start = center - ((total - 1) * COL_GAP) / 2
-  return start + index * COL_GAP
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values))
+}
+
+function spouseIdsInFamily(family: Family, personId: string): string[] {
+  return [family.husbandId, family.wifeId].filter((id): id is string => Boolean(id) && id !== personId)
+}
+
+function safeName(person?: Person): string {
+  return person?.displayName ?? 'Unknown'
+}
+
+function orderedIds(ids: Iterable<string>, model: GedcomModel): string[] {
+  return Array.from(ids).sort((a, b) => safeName(model.persons[a]).localeCompare(safeName(model.persons[b])))
 }
 
 export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGraph | undefined {
   const details = getFocusPersonDetails(model, personId)
   if (!details) return undefined
 
-  const focusNode: GraphNode = {
-    id: details.person.id,
-    label: details.person.displayName,
-    detail: [details.born ? `Born ${details.born}` : undefined, details.died ? `Died ${details.died}` : undefined]
-      .filter(Boolean)
-      .join(' • '),
-    x: 500,
-    y: rowY(2),
-    kind: 'focus',
-  }
+  const focusId = details.person.id
 
-  const parentNodes = details.parents.map((parent, index) => ({
-    id: parent.id,
-    label: parent.name,
-    detail: parent.subtitle,
-    x: spreadX(index, details.parents.length),
-    y: rowY(0),
-    kind: 'parent' as const,
-  }))
+  const parentFamilies = details.person.familyAsChildIds
+    .map((familyId) => model.families[familyId])
+    .filter((family): family is Family => Boolean(family))
 
-  const siblingNodes = details.siblings.map((sibling, index) => ({
-    id: sibling.id,
-    label: sibling.name,
-    detail: sibling.subtitle,
-    x: spreadX(index, details.siblings.length),
-    y: rowY(1),
-    kind: 'sibling' as const,
-  }))
+  const spouseFamilies = details.person.familyAsSpouseIds
+    .map((familyId) => model.families[familyId])
+    .filter((family): family is Family => Boolean(family))
 
-  const spouseNodes = details.spouses.map((spouse, index) => ({
-    id: spouse.id,
-    label: spouse.name,
-    detail: spouse.marriage ? `Married ${spouse.marriage}` : spouse.subtitle,
-    x: spreadX(index, details.spouses.length),
-    y: rowY(3),
-    kind: 'spouse' as const,
-  }))
+  const parentIds = uniqueStrings(
+    parentFamilies.flatMap((family) => [family.husbandId, family.wifeId].filter((id): id is string => Boolean(id))),
+  )
 
-  const childNodes = details.children.map((child, index) => ({
-    id: child.id,
-    label: child.name,
-    detail: child.subtitle,
-    x: spreadX(index, details.children.length),
-    y: rowY(4),
-    kind: 'child' as const,
-  }))
+  const siblingIds = uniqueStrings(parentFamilies.flatMap((family) => family.childIds)).filter((id) => id !== focusId)
 
-  const nodes = [focusNode, ...parentNodes, ...siblingNodes, ...spouseNodes, ...childNodes]
+  const grandparentIds = uniqueStrings(
+    parentIds.flatMap((parentId) => {
+      const parent = model.persons[parentId]
+      if (!parent) return []
+      return parent.familyAsChildIds.flatMap((familyId) => {
+        const family = model.families[familyId]
+        if (!family) return []
+        return [family.husbandId, family.wifeId].filter((id): id is string => Boolean(id))
+      })
+    }),
+  ).filter((id) => !parentIds.includes(id))
 
-  const edges: GraphEdge[] = [
-    ...parentNodes.map((node) => ({ from: node.id, to: details.person.id })),
-    ...siblingNodes.map((node) => ({ from: node.id, to: details.person.id, label: 'Sibling' })),
-    ...spouseNodes.map((node) => ({ from: details.person.id, to: node.id, label: node.detail?.startsWith('Married') ? node.detail : 'Spouse' })),
-    ...childNodes.map((node) => ({ from: details.person.id, to: node.id, label: 'Child' })),
+  const childIds = uniqueStrings(spouseFamilies.flatMap((family) => family.childIds))
+
+  const spouseIds = uniqueStrings(spouseFamilies.flatMap((family) => spouseIdsInFamily(family, focusId)))
+
+  const childCoparentIds = uniqueStrings(
+    childIds.flatMap((childId) => {
+      const child = model.persons[childId]
+      if (!child) return []
+      return child.familyAsChildIds.flatMap((familyId) => {
+        const family = model.families[familyId]
+        if (!family) return []
+        return spouseIdsInFamily(family, childId)
+      })
+    }),
+  ).filter((id) => id !== focusId)
+
+  const grandchildIds = uniqueStrings(
+    childIds.flatMap((childId) => {
+      const child = model.persons[childId]
+      if (!child) return []
+      return child.familyAsSpouseIds.flatMap((familyId) => {
+        const family = model.families[familyId]
+        if (!family) return []
+        return family.childIds
+      })
+    }),
+  )
+
+  const generationRows = [
+    { level: -2, ids: orderedIds(grandparentIds, model), kind: 'ancestor' as const },
+    { level: -1, ids: orderedIds(parentIds, model), kind: 'ancestor' as const },
+    {
+      level: 0,
+      ids: [
+        ...orderedIds(siblingIds, model),
+        focusId,
+        ...orderedIds(uniqueStrings([...spouseIds, ...childCoparentIds]), model).filter((id) => id !== focusId),
+      ],
+      kind: undefined,
+    },
+    { level: 1, ids: orderedIds(childIds, model), kind: 'descendant' as const },
+    { level: 2, ids: orderedIds(grandchildIds, model), kind: 'descendant' as const },
   ]
 
-  const maxX = Math.max(...nodes.map((node) => node.x))
-  const minX = Math.min(...nodes.map((node) => node.x))
-  const width = Math.max(980, maxX - minX + NODE_W + 160)
-  const height = rowY(5)
+  const dedupedRows = generationRows
+    .map((row) => ({ ...row, ids: uniqueStrings(row.ids) }))
+    .filter((row) => row.ids.length > 0)
 
-  return { nodes, edges, width, height }
+  if (!dedupedRows.some((row) => row.ids.includes(focusId))) return undefined
+
+  const levelToY = new Map<number, number>()
+  dedupedRows.forEach((row, rowIndex) => {
+    levelToY.set(row.level, PADDING_Y + rowIndex * ROW_GAP)
+  })
+
+  const nodes: GraphNode[] = []
+
+  dedupedRows.forEach((row) => {
+    const startX = PADDING_X + (row.ids.length === 1 ? 0 : -((row.ids.length - 1) * COL_GAP) / 2)
+    row.ids.forEach((id, index) => {
+      const person = model.persons[id]
+      if (!person) return
+
+      let kind: GraphNode['kind']
+      if (id === focusId) kind = 'focus'
+      else if (row.level < 0) kind = 'ancestor'
+      else if (row.level > 0) kind = 'descendant'
+      else if (siblingIds.includes(id)) kind = 'sibling'
+      else kind = 'spouse'
+
+      nodes.push({
+        id,
+        label: person.displayName,
+        detail: lifeDetail(person),
+        x: startX + index * COL_GAP,
+        y: levelToY.get(row.level) ?? PADDING_Y,
+        kind,
+      })
+    })
+  })
+
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+
+  const familyEdges: GraphEdge[] = []
+  const includePerson = (id?: string) => Boolean(id && byId.has(id))
+
+  Object.values(model.families).forEach((family) => {
+    const parentIdsInGraph = [family.husbandId, family.wifeId].filter((id): id is string => includePerson(id))
+    const childIdsInGraph = family.childIds.filter((id) => includePerson(id))
+
+    if (parentIdsInGraph.length === 2) {
+      familyEdges.push({
+        from: parentIdsInGraph[0],
+        to: parentIdsInGraph[1],
+        label: family.events.find((event) => event.type === 'MARR')?.date ? `Married ${family.events.find((event) => event.type === 'MARR')?.date}` : 'Spouse',
+        kind: 'spouse',
+      })
+    }
+
+    parentIdsInGraph.forEach((parentId) => {
+      childIdsInGraph.forEach((childId) => {
+        familyEdges.push({ from: parentId, to: childId, kind: 'parent-child' })
+      })
+    })
+  })
+
+  const seen = new Set<string>()
+  const edges = familyEdges.filter((edge) => {
+    const key = `${edge.kind}:${edge.from}->${edge.to}:${edge.label ?? ''}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+
+  const minX = Math.min(...nodes.map((node) => node.x))
+  const maxX = Math.max(...nodes.map((node) => node.x))
+  const minY = Math.min(...nodes.map((node) => node.y))
+  const maxY = Math.max(...nodes.map((node) => node.y))
+
+  const shiftX = PADDING_X - minX + NODE_W / 2
+  const shiftY = PADDING_Y - minY + 40
+
+  const shiftedNodes = nodes.map((node) => ({ ...node, x: node.x + shiftX, y: node.y + shiftY }))
+
+  const width = Math.max(980, maxX - minX + NODE_W + PADDING_X * 2)
+  const height = Math.max(420, maxY - minY + ROW_GAP + PADDING_Y * 1.6)
+
+  return { nodes: shiftedNodes, edges, width, height }
 }

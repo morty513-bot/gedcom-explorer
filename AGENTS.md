@@ -24,7 +24,7 @@ Build a mobile+desktop friendly GEDCOM explorer web app with:
 
 ## Current architecture
 - `src/core/gedcom/*`: line parser + normalized GEDCOM model + selectors
-- `src/core/graph/*`: focused subgraph generation (parents/siblings/spouses/children)
+- `src/core/graph/*`: focused subgraph generation with generation-row layering (ancestors above, focus generation centered, descendants below)
 - `src/features/upload/*`: GEDCOM upload/import + compact replace flow
 - `src/features/people/*`: people list + detail view
 - `src/features/tree/*`: SVG tree canvas + click-to-focus nodes

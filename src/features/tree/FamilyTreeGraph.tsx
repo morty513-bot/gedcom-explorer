@@ -26,16 +26,38 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
     <section className="panel graph-panel">
       <h2>Family Tree</h2>
       <div className="graph-scroll">
-        <svg viewBox={`0 0 ${graph.width} ${graph.height}`} role="img" aria-label="Focused family tree graph">
+        <svg
+          viewBox={`0 0 ${graph.width} ${graph.height}`}
+          width={graph.width}
+          height={graph.height}
+          role="img"
+          aria-label="Focused family tree graph"
+        >
           {graph.edges.map((edge, index) => {
             const from = nodeById.get(edge.from)
             const to = nodeById.get(edge.to)
             if (!from || !to) return null
 
+            if (edge.kind === 'spouse') {
+              const y = (from.y + to.y) / 2
+              const x1 = Math.min(from.x, to.x)
+              const x2 = Math.max(from.x, to.x)
+              return (
+                <g key={`${edge.from}-${edge.to}-${index}`}>
+                  <line x1={x1} y1={y} x2={x2} y2={y} className="graph-edge graph-edge-spouse" />
+                  {edge.label ? (
+                    <text x={(x1 + x2) / 2} y={y - 6} className="graph-edge-label">
+                      {edge.label}
+                    </text>
+                  ) : null}
+                </g>
+              )
+            }
+
             const x1 = from.x
-            const y1 = from.y + 18
+            const y1 = from.y + 20
             const x2 = to.x
-            const y2 = to.y - 18
+            const y2 = to.y - 20
 
             return (
               <g key={`${edge.from}-${edge.to}-${index}`}>
@@ -43,11 +65,6 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
                   d={`M ${x1} ${y1} C ${x1} ${(y1 + y2) / 2}, ${x2} ${(y1 + y2) / 2}, ${x2} ${y2}`}
                   className="graph-edge"
                 />
-                {edge.label ? (
-                  <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 4} className="graph-edge-label">
-                    {edge.label}
-                  </text>
-                ) : null}
               </g>
             )
           })}
@@ -63,8 +80,8 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
                 if (event.key === 'Enter' || event.key === ' ') onSelectPerson(node.id)
               }}
             >
-              <rect x={node.x - 90} y={node.y - 28} rx={10} ry={10} width={180} height={56} />
-              <text x={node.x} y={node.y - 4} textAnchor="middle" className="graph-node-name">
+              <rect x={node.x - 95} y={node.y - 30} rx={10} ry={10} width={190} height={60} />
+              <text x={node.x} y={node.y - 6} textAnchor="middle" className="graph-node-name">
                 {node.label}
               </text>
               {node.detail ? (
