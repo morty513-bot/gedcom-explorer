@@ -5,6 +5,11 @@
   - Focus: Elizabeth Windsor (default focus)
   - Shows spouse adjacency (Elizabeth ↔ Philip), clear descendant layering (children then grandchildren), and readable details panel.
 
+- `desktop-uk-royal-conventional-layout.png`
+  - Dataset: `uk-royal-simple.ged`
+  - Focus: Elizabeth Windsor (default focus)
+  - Updated conventional layout pass: parent couple stays adjacent, descendants are centered under their parent family midpoint, and generation rows remain clearly separated.
+
 - `desktop-simple-extended-ava.png`
   - Dataset: `simple-extended-family.ged`
   - Focus: Ava King

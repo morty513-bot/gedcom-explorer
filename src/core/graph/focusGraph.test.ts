@@ -188,6 +188,82 @@ describe('buildFocusGraph focus-row layout policy', () => {
     expect(rowA).toEqual(rowB)
   })
 
+  it('centers children under the midpoint of the parent couple block', () => {
+    const model: GedcomModel = {
+      persons: {
+        FOCUS: person('FOCUS', 'Focus', { familyAsSpouseIds: ['F_MAIN'] }),
+        SPOUSE: person('SPOUSE', 'Spouse', { familyAsSpouseIds: ['F_MAIN'] }),
+        CHILD_1: person('CHILD_1', 'Child One', { familyAsChildIds: ['F_MAIN'] }),
+        CHILD_2: person('CHILD_2', 'Child Two', { familyAsChildIds: ['F_MAIN'] }),
+        CHILD_3: person('CHILD_3', 'Child Three', { familyAsChildIds: ['F_MAIN'] }),
+      },
+      families: {
+        F_MAIN: family('F_MAIN', { husbandId: 'FOCUS', wifeId: 'SPOUSE', childIds: ['CHILD_1', 'CHILD_2', 'CHILD_3'] }),
+      },
+    }
+
+    const graph = buildFocusGraph(model, 'FOCUS')
+    expect(graph).toBeDefined()
+
+    const byId = new Map((graph?.nodes ?? []).map((node) => [node.id, node]))
+    const focus = byId.get('FOCUS')
+    const spouse = byId.get('SPOUSE')
+    const children = ['CHILD_1', 'CHILD_2', 'CHILD_3']
+      .map((id) => byId.get(id))
+      .filter((node): node is NonNullable<typeof node> => Boolean(node))
+
+    expect(focus).toBeDefined()
+    expect(spouse).toBeDefined()
+    expect(children.length).toBe(3)
+
+    const parentMidpoint = ((focus?.x ?? 0) + (spouse?.x ?? 0)) / 2
+    const childCentroid = children.reduce((sum, child) => sum + child.x, 0) / children.length
+
+    expect(Math.abs(parentMidpoint - childCentroid)).toBeLessThanOrEqual(30)
+  })
+
+  it('keeps sibling block coherent and not interleaved with cousin branch nodes', () => {
+    const model: GedcomModel = {
+      persons: {
+        GP_A: person('GP_A', 'Grandparent A', { familyAsSpouseIds: ['F_GP_A'] }),
+        GP_B: person('GP_B', 'Grandparent B', { familyAsSpouseIds: ['F_GP_A'] }),
+        PARENT_1: person('PARENT_1', 'Parent One', { familyAsChildIds: ['F_GP_A'], familyAsSpouseIds: ['F_MAIN'] }),
+        PARENT_2: person('PARENT_2', 'Parent Two', { familyAsSpouseIds: ['F_MAIN'] }),
+        AUNT_A: person('AUNT_A', 'Aunt A', { familyAsChildIds: ['F_GP_A'], familyAsSpouseIds: ['F_AUNT_A'] }),
+        AUNT_B: person('AUNT_B', 'Aunt B', { familyAsChildIds: ['F_GP_A'], familyAsSpouseIds: ['F_AUNT_B'] }),
+        FOCUS: person('FOCUS', 'Focus', { familyAsChildIds: ['F_MAIN'] }),
+        SIB_1: person('SIB_1', 'Sibling One', { familyAsChildIds: ['F_MAIN'] }),
+        SIB_2: person('SIB_2', 'Sibling Two', { familyAsChildIds: ['F_MAIN'] }),
+        COUSIN_A1: person('COUSIN_A1', 'Cousin A1', { familyAsChildIds: ['F_AUNT_A'] }),
+        COUSIN_A2: person('COUSIN_A2', 'Cousin A2', { familyAsChildIds: ['F_AUNT_A'] }),
+        COUSIN_B1: person('COUSIN_B1', 'Cousin B1', { familyAsChildIds: ['F_AUNT_B'] }),
+      },
+      families: {
+        F_GP_A: family('F_GP_A', { husbandId: 'GP_A', wifeId: 'GP_B', childIds: ['PARENT_1', 'AUNT_A', 'AUNT_B'] }),
+        F_MAIN: family('F_MAIN', { husbandId: 'PARENT_1', wifeId: 'PARENT_2', childIds: ['FOCUS', 'SIB_1', 'SIB_2'] }),
+        F_AUNT_A: family('F_AUNT_A', { wifeId: 'AUNT_A', childIds: ['COUSIN_A1', 'COUSIN_A2'] }),
+        F_AUNT_B: family('F_AUNT_B', { wifeId: 'AUNT_B', childIds: ['COUSIN_B1'] }),
+      },
+    }
+
+    const graph = buildFocusGraph(model, 'FOCUS')
+    expect(graph).toBeDefined()
+
+    const focusY = graph?.nodes.find((node) => node.id === 'FOCUS')?.y
+    const row = (graph?.nodes ?? [])
+      .filter((node) => node.y === focusY && node.selectable !== false)
+      .sort((a, b) => a.x - b.x)
+      .map((node) => node.id)
+
+    const siblingIndexes = ['FOCUS', 'SIB_1', 'SIB_2'].map((id) => row.indexOf(id)).sort((a, b) => a - b)
+    const cousinIndexes = ['COUSIN_A1', 'COUSIN_A2', 'COUSIN_B1'].map((id) => row.indexOf(id)).sort((a, b) => a - b)
+
+    expect(siblingIndexes.every((index) => index >= 0)).toBe(true)
+    expect(cousinIndexes.every((index) => index >= 0)).toBe(true)
+    expect(siblingIndexes[2] - siblingIndexes[0]).toBe(2)
+    expect(cousinIndexes[0]).toBeGreaterThan(siblingIndexes[2])
+  })
+
   it('caps level 0 with a clear overflow node when too many inferred siblings exist', () => {
     const persons: Record<string, Person> = {
       P1: person('P1', 'Parent One', { familyAsSpouseIds: ['F_MAIN', 'F_HALF'] }),

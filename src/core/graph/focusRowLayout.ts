@@ -26,6 +26,11 @@ interface RowBlock {
   includesFocus: boolean
 }
 
+interface BucketedBlock {
+  ids: string[]
+  bucketKey: string
+}
+
 function normalizeSortableText(value?: string): string {
   return (value ?? 'unknown').trim().toLocaleLowerCase()
 }
@@ -120,14 +125,38 @@ export function orderFocusRow(levelIds: string[], model: GedcomModel, meta: Focu
     })
   })
 
-  Array.from(levelIdSet)
-    .filter((id) => !pairedIds.has(id))
-    .forEach((id) => {
+  const unpairedIds = Array.from(levelIdSet).filter((id) => !pairedIds.has(id))
+
+  const bucketedBlocks = new Map<string, BucketedBlock>()
+  unpairedIds.forEach((id) => {
+    let bucketKey: string
+    if (id === meta.focusId || meta.siblingIds.has(id)) bucketKey = 'sibling:\u00000'
+    else if (meta.cousinBranchAnchorById.has(id)) {
+      const anchor = meta.cousinBranchAnchorById.get(id) ?? 'unknown'
+      const anchorOrder = cousinAnchorOrder(id, meta)
+      const anchorPart = Number.isFinite(anchorOrder) ? String(anchorOrder).padStart(4, '0') : '9999'
+      bucketKey = `cousin:\u0000${anchorPart}\u0000${anchor}`
+    } else {
+      bucketKey = `other:\u0000${id}`
+    }
+
+    const existing = bucketedBlocks.get(bucketKey)
+    if (existing) {
+      existing.ids.push(id)
+      return
+    }
+    bucketedBlocks.set(bucketKey, { ids: [id], bucketKey })
+  })
+
+  Array.from(bucketedBlocks.values())
+    .sort((a, b) => a.bucketKey.localeCompare(b.bucketKey))
+    .forEach((bucket) => {
+      const ids = bucket.ids.sort((x, y) => personSortKey(model, x).localeCompare(personSortKey(model, y)))
       blocks.push({
-        ids: [id],
-        kind: blockKind([id], meta),
-        sortKey: personSortKey(model, id),
-        includesFocus: id === meta.focusId,
+        ids,
+        kind: blockKind(ids, meta),
+        sortKey: ids.map((id) => personSortKey(model, id)).join('\u0000'),
+        includesFocus: ids.includes(meta.focusId),
       })
     })
 

@@ -113,6 +113,45 @@ function placeAtLevel(levelById: Map<string, number>, id: string, level: number)
   }
 }
 
+function midpoint(values: number[]): number | undefined {
+  if (values.length === 0) return undefined
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function resolveDesiredSlots(
+  ids: string[],
+  baseSlots: Map<string, number>,
+  desiredSlots: Map<string, number>,
+  spouseLikeIds: Set<string>,
+): Map<string, number> {
+  const orderedIds = [...ids]
+  const slots = orderedIds.map((id) => desiredSlots.get(id) ?? baseSlots.get(id) ?? 0)
+
+  const resolved = [...slots]
+  for (let i = 1; i < resolved.length; i += 1) {
+    resolved[i] = Math.max(resolved[i], resolved[i - 1] + 1)
+  }
+  for (let i = resolved.length - 2; i >= 0; i -= 1) {
+    resolved[i] = Math.min(resolved[i], resolved[i + 1] - 1)
+  }
+
+  // Keep partner pairs visually adjacent where possible.
+  for (let i = 0; i < orderedIds.length - 1; i += 1) {
+    const leftId = orderedIds[i]
+    const rightId = orderedIds[i + 1]
+    if (!spouseLikeIds.has(leftId) || !spouseLikeIds.has(rightId)) continue
+    const left = resolved[i]
+    const right = resolved[i + 1]
+    if (right - left > 1.4) {
+      const mid = (left + right) / 2
+      resolved[i] = mid - 0.5
+      resolved[i + 1] = mid + 0.5
+    }
+  }
+
+  return new Map(orderedIds.map((id, index) => [id, resolved[index]]))
+}
+
 export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGraph | undefined {
   const details = getFocusPersonDetails(model, personId)
   if (!details) return undefined
@@ -223,7 +262,9 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
     levelToY.set(level, PADDING_Y + rowIndex * ROW_GAP)
   })
 
-  const nodes: GraphNode[] = []
+  const visibleIdsByLevel = new Map<number, string[]>()
+  const hiddenIdsByLevel = new Map<number, string[]>()
+  const overflowSummaryByLevel = new Map<number, ReturnType<typeof summarizeOverflowKinds> | undefined>()
 
   orderedLevels.forEach((level) => {
     const levelIds = relativeIdsByLevel.get(level) ?? []
@@ -241,15 +282,92 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
         : undefined
 
     const sortedIds = focusRowResult?.orderedIds ?? orderedIds(levelIds, model)
-
     const cap = LEVEL_CAPS[level] ?? 10
     const visibleIds = sortedIds.slice(0, cap)
-    const hiddenCount = Math.max(0, sortedIds.length - visibleIds.length)
+    const hiddenIds = sortedIds.slice(cap)
 
-    const rowSlots = hiddenCount > 0 ? visibleIds.length + 1 : visibleIds.length
-    const startX = PADDING_X + (rowSlots <= 1 ? 0 : -((rowSlots - 1) * COL_GAP) / 2)
+    visibleIdsByLevel.set(level, visibleIds)
+    hiddenIdsByLevel.set(level, hiddenIds)
 
-    visibleIds.forEach((id, index) => {
+    if (hiddenIds.length > 0 && level === 0 && focusRowResult) {
+      overflowSummaryByLevel.set(
+        level,
+        summarizeOverflowKinds(hiddenIds, {
+          focusId,
+          siblingIds,
+          spouseLikeIds,
+          cousinBranchAnchorById,
+          parentSiblingPrimaryFocusParent,
+          focusParentOrderIndex,
+        }),
+      )
+    }
+  })
+
+  const slotById = new Map<string, number>()
+  visibleIdsByLevel.forEach((ids) => ids.forEach((id, index) => slotById.set(id, index)))
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    orderedLevels.forEach((level) => {
+      const ids = visibleIdsByLevel.get(level) ?? []
+      if (ids.length === 0) return
+
+      const desired = new Map<string, number>()
+      ids.forEach((id) => {
+        const parentAnchors = model.persons[id]
+          ?.familyAsChildIds.flatMap((familyId) => {
+            const family = model.families[familyId]
+            if (!family) return []
+            return [family.husbandId, family.wifeId]
+              .filter((parentId): parentId is string => typeof parentId === 'string')
+              .filter((parentId) => slotById.has(parentId))
+              .map((parentId) => slotById.get(parentId) ?? 0)
+          })
+          .filter((v): v is number => Number.isFinite(v)) ?? []
+
+        const parentMidpoint = midpoint(parentAnchors)
+        if (parentMidpoint !== undefined) desired.set(id, parentMidpoint)
+      })
+
+      resolveDesiredSlots(ids, slotById, desired, spouseLikeIds).forEach((slot, id) => slotById.set(id, slot))
+    });
+
+    [...orderedLevels].reverse().forEach((level) => {
+      const ids = visibleIdsByLevel.get(level) ?? []
+      if (ids.length === 0) return
+
+      const desired = new Map<string, number>()
+      ids.forEach((id) => {
+        const childAnchors = model.persons[id]
+          ?.familyAsSpouseIds.flatMap((familyId) => {
+            const family = model.families[familyId]
+            if (!family) return []
+            return family.childIds.filter((childId) => slotById.has(childId)).map((childId) => slotById.get(childId) ?? 0)
+          })
+          .filter((v): v is number => Number.isFinite(v)) ?? []
+
+        const childCentroid = midpoint(childAnchors)
+        if (childCentroid !== undefined) desired.set(id, childCentroid)
+      })
+
+      resolveDesiredSlots(ids, slotById, desired, spouseLikeIds).forEach((slot, id) => slotById.set(id, slot))
+    })
+  }
+
+  const nodes: GraphNode[] = []
+
+  orderedLevels.forEach((level) => {
+    const visibleIds = visibleIdsByLevel.get(level) ?? []
+    const hiddenIds = hiddenIdsByLevel.get(level) ?? []
+    const rowSlots = hiddenIds.length > 0 ? visibleIds.length + 1 : visibleIds.length
+
+    const visibleSlots = visibleIds.map((id, index) => ({ id, slot: slotById.get(id) ?? index }))
+    const minSlot = Math.min(...visibleSlots.map((entry) => entry.slot))
+    const maxSlot = Math.max(...visibleSlots.map((entry) => entry.slot))
+    const rowSpan = Math.max(rowSlots - 1, maxSlot - minSlot, 0)
+    const startX = PADDING_X + (rowSpan <= 0 ? 0 : -(rowSpan * COL_GAP) / 2)
+
+    visibleSlots.forEach(({ id, slot }) => {
       const person = model.persons[id]
       if (!person) return
 
@@ -275,27 +393,15 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
         id,
         label: person.displayName,
         detail: [baseDetail, siblingLabel].filter(Boolean).join(' • ') || undefined,
-        x: startX + index * COL_GAP,
+        x: startX + (slot - minSlot) * COL_GAP,
         y: levelToY.get(level) ?? PADDING_Y,
         kind,
         selectable: true,
       })
     })
 
-    if (hiddenCount > 0) {
-      const hiddenIds = sortedIds.slice(cap)
-      const overflowSummary =
-        level === 0 && focusRowResult
-          ? summarizeOverflowKinds(hiddenIds, {
-              focusId,
-              siblingIds,
-              spouseLikeIds,
-              cousinBranchAnchorById,
-              parentSiblingPrimaryFocusParent,
-              focusParentOrderIndex,
-            })
-          : undefined
-
+    if (hiddenIds.length > 0) {
+      const overflowSummary = overflowSummaryByLevel.get(level)
       const overflowParts = [
         overflowSummary?.hiddenCouples ? `${overflowSummary.hiddenCouples} partners` : undefined,
         overflowSummary?.hiddenSiblings ? `${overflowSummary.hiddenSiblings} siblings` : undefined,
@@ -305,9 +411,9 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
 
       nodes.push({
         id: `${OVERFLOW_PREFIX}:${level}`,
-        label: `+${hiddenCount} more`,
+        label: `+${hiddenIds.length} more`,
         detail: overflowParts.length > 0 ? `Hidden: ${overflowParts.join(', ')}` : 'Not shown to keep this view readable',
-        x: startX + visibleIds.length * COL_GAP,
+        x: startX + rowSpan * COL_GAP + COL_GAP,
         y: levelToY.get(level) ?? PADDING_Y,
         kind: 'overflow',
         selectable: false,
