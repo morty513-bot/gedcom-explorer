@@ -54,8 +54,15 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
               )
             }
 
-            const x1 = from.x
-            const y1 = from.y + 20
+            const parentNodes = (edge.parents ?? []).map((id) => nodeById.get(id)).filter(Boolean)
+            const x1 =
+              parentNodes.length === 2
+                ? ((parentNodes[0]?.x ?? from.x) + (parentNodes[1]?.x ?? from.x)) / 2
+                : from.x
+            const y1 =
+              parentNodes.length === 2
+                ? ((parentNodes[0]?.y ?? from.y) + (parentNodes[1]?.y ?? from.y)) / 2 + 20
+                : from.y + 20
             const x2 = to.x
             const y2 = to.y - 20
 

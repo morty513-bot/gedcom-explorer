@@ -14,6 +14,7 @@ export interface GraphEdge {
   from: string
   to: string
   label?: string
+  parents?: string[]
   kind: 'parent-child' | 'spouse'
 }
 
@@ -45,12 +46,23 @@ function spouseIdsInFamily(family: Family, personId: string): string[] {
   return [family.husbandId, family.wifeId].filter((id): id is string => Boolean(id) && id !== personId)
 }
 
-function safeName(person?: Person): string {
-  return person?.displayName ?? 'Unknown'
+function normalizeSortableText(value?: string): string {
+  return (value ?? 'unknown').trim().toLocaleLowerCase()
+}
+
+function birthDate(person?: Person): string {
+  return normalizeSortableText(person?.events.find((event) => event.type === 'BIRT')?.date)
+}
+
+function personSortKey(person?: Person, fallbackId?: string): string {
+  const name = normalizeSortableText(person?.displayName)
+  const birth = birthDate(person)
+  const id = fallbackId ?? person?.id ?? ''
+  return `${name}\u0000${birth}\u0000${id}`
 }
 
 function orderedIds(ids: Iterable<string>, model: GedcomModel): string[] {
-  return Array.from(ids).sort((a, b) => safeName(model.persons[a]).localeCompare(safeName(model.persons[b])))
+  return Array.from(ids).sort((a, b) => personSortKey(model.persons[a], a).localeCompare(personSortKey(model.persons[b], b)))
 }
 
 export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGraph | undefined {
@@ -118,11 +130,7 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
     { level: -1, ids: orderedIds(parentIds, model), kind: 'ancestor' as const },
     {
       level: 0,
-      ids: [
-        ...orderedIds(siblingIds, model),
-        focusId,
-        ...orderedIds(uniqueStrings([...spouseIds, ...childCoparentIds]), model).filter((id) => id !== focusId),
-      ],
+      ids: orderedIds(uniqueStrings([focusId, ...siblingIds, ...spouseIds, ...childCoparentIds]), model),
       kind: undefined,
     },
     { level: 1, ids: orderedIds(childIds, model), kind: 'descendant' as const },
@@ -176,24 +184,31 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
     const childIdsInGraph = family.childIds.filter((id) => includePerson(id))
 
     if (parentIdsInGraph.length === 2) {
+      const marriageDate = family.events.find((event) => event.type === 'MARR')?.date
       familyEdges.push({
         from: parentIdsInGraph[0],
         to: parentIdsInGraph[1],
-        label: family.events.find((event) => event.type === 'MARR')?.date ? `Married ${family.events.find((event) => event.type === 'MARR')?.date}` : 'Spouse',
+        label: marriageDate ? `Married ${marriageDate}` : 'Spouse',
         kind: 'spouse',
       })
     }
 
-    parentIdsInGraph.forEach((parentId) => {
-      childIdsInGraph.forEach((childId) => {
-        familyEdges.push({ from: parentId, to: childId, kind: 'parent-child' })
+    childIdsInGraph.forEach((childId) => {
+      if (parentIdsInGraph.length === 0) return
+      const anchorParentId = parentIdsInGraph[0]
+      familyEdges.push({
+        from: anchorParentId,
+        to: childId,
+        parents: parentIdsInGraph,
+        kind: 'parent-child',
       })
     })
   })
 
   const seen = new Set<string>()
   const edges = familyEdges.filter((edge) => {
-    const key = `${edge.kind}:${edge.from}->${edge.to}:${edge.label ?? ''}`
+    const parentKey = edge.parents ? edge.parents.join(',') : ''
+    const key = `${edge.kind}:${edge.from}->${edge.to}:${edge.label ?? ''}:${parentKey}`
     if (seen.has(key)) return false
     seen.add(key)
     return true
