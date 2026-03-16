@@ -20,6 +20,9 @@ Build a mobile+desktop friendly GEDCOM explorer web app with:
 - Add tests for parser/graph shaping logic when introduced
 - Run `npm run build` before milestone updates
 - Keep commits focused and descriptive
+- This repository is public: never commit secrets/tokens, private datasets, or personally identifying family records
+- Use only synthetic/anonymized GEDCOM fixtures for repository test data
+- Before push, sanity-check diffs for accidental private data
 
 ## Initial architecture
 - `src/core/gedcom/*`: parsing + normalized model

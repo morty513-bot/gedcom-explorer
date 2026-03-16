@@ -38,6 +38,15 @@ npm run dev
 - `npm run build` - type-check and production build
 - `npm run preview` - preview production build
 
+## Sample GEDCOM for testing
+A synthetic fixture is included at:
+- `samples/sample-family.ged`
+
+Use this for smoke-testing upload/import in browser without exposing real family data.
+
+## Privacy note
+This repo is public. Do not commit private GEDCOM files or any personal/family-identifying records.
+
 ## Near-term milestones
 1. Import + parse GEDCOM into normalized model
 2. Person search + focus selection
