@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { GedcomModel } from '../../core/gedcom/types'
 import { buildFocusGraph } from '../../core/graph/focusGraph'
 
@@ -44,6 +44,23 @@ function parentChildEdgeTooltip(parentLabels: string[], childLabel: string): str
 
 export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Props) {
   const graph = useMemo(() => buildFocusGraph(model, focusedPersonId), [model, focusedPersonId])
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!graph || !focusedPersonId) return
+    const focusNode = graph.nodes.find((node) => node.id === focusedPersonId)
+    const container = scrollRef.current
+    if (!focusNode || !container) return
+
+    const targetLeft = Math.max(0, focusNode.x - container.clientWidth / 2)
+    const targetTop = Math.max(0, focusNode.y - container.clientHeight / 2)
+
+    container.scrollTo({
+      left: Math.min(targetLeft, Math.max(0, container.scrollWidth - container.clientWidth)),
+      top: Math.min(targetTop, Math.max(0, container.scrollHeight - container.clientHeight)),
+      behavior: 'smooth',
+    })
+  }, [graph, focusedPersonId])
 
   if (!graph) {
     return (
@@ -59,7 +76,7 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
   return (
     <section className="panel graph-panel">
       <h2>Family Tree</h2>
-      <div className="graph-scroll">
+      <div className="graph-scroll" ref={scrollRef}>
         <svg
           viewBox={`0 0 ${graph.width} ${graph.height}`}
           width={graph.width}
