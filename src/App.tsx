@@ -44,6 +44,12 @@ function App() {
 
       <GedcomUpload hasData={hasData} onLoaded={handleLoaded} />
 
+      <FamilyTreeGraph
+        model={model}
+        focusedPersonId={selectedPersonId}
+        onSelectPerson={setSelectedPersonId}
+      />
+
       <section className="layout-grid">
         <PersonList
           people={personList}
@@ -52,12 +58,6 @@ function App() {
         />
         <FocusPerson model={model} personId={selectedPersonId} onSelectPerson={setSelectedPersonId} />
       </section>
-
-      <FamilyTreeGraph
-        model={model}
-        focusedPersonId={selectedPersonId}
-        onSelectPerson={setSelectedPersonId}
-      />
     </main>
   )
 }
