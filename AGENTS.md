@@ -24,9 +24,9 @@ Build a mobile+desktop friendly GEDCOM explorer web app with:
 - Use only synthetic/anonymized GEDCOM fixtures for repository test data
 - Before push, sanity-check diffs for accidental private data
 
-## Initial architecture
-- `src/core/gedcom/*`: parsing + normalized model
-- `src/core/graph/*`: focus-subgraph + hidden-connection indicators
-- `src/features/tree/*`: tree canvas and controls
-- `src/features/details/*`: person details pane
+## Current architecture
+- `src/core/gedcom/*`: line parser + normalized GEDCOM model + selectors
+- `src/core/graph/*`: reserved for focus-subgraph + hidden-connection indicators
 - `src/features/upload/*`: GEDCOM upload/import flow
+- `src/features/people/*`: person list + focus detail view
+- `src/features/tree/*`: planned tree canvas and controls
