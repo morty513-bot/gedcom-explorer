@@ -1,6 +1,7 @@
 import type { Family, GedcomModel, Person } from '../gedcom/types'
 import { getFocusPersonDetails } from '../gedcom/selectors'
 import { inferredSiblingsOf, parentIdsOf } from '../gedcom/relationships'
+import { orderFocusRow, summarizeOverflowKinds } from './focusRowLayout'
 
 export interface GraphNode {
   id: string
@@ -76,12 +77,6 @@ function personSortKey(person?: Person, fallbackId?: string): string {
 
 function orderedIds(ids: Iterable<string>, model: GedcomModel): string[] {
   return Array.from(ids).sort((a, b) => personSortKey(model.persons[a], a).localeCompare(personSortKey(model.persons[b], b)))
-}
-
-function focusCenteredSiblingOrder(focusId: string, siblingIds: string[], model: GedcomModel): string[] {
-  const sortedSiblings = orderedIds(siblingIds, model)
-  const midpoint = Math.floor(sortedSiblings.length / 2)
-  return [...sortedSiblings.slice(0, midpoint), focusId, ...sortedSiblings.slice(midpoint)]
 }
 
 function firstSortedMatch(ids: Iterable<string>, model: GedcomModel): string | undefined {
@@ -233,54 +228,19 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
   orderedLevels.forEach((level) => {
     const levelIds = relativeIdsByLevel.get(level) ?? []
 
-    const sortedIds =
+    const focusRowResult =
       level === 0
-        ? (() => {
-            const levelIdSet = new Set(levelIds)
+        ? orderFocusRow(levelIds, model, {
+            focusId,
+            siblingIds,
+            spouseLikeIds,
+            cousinBranchAnchorById,
+            parentSiblingPrimaryFocusParent,
+            focusParentOrderIndex,
+          })
+        : undefined
 
-            const siblingClusterIds = Array.from(levelIdSet).filter((id) => id === focusId || siblingIds.has(id))
-            const siblingOnlyIds = siblingClusterIds.filter((id) => id !== focusId)
-            const coreSiblingOrder = focusCenteredSiblingOrder(focusId, siblingOnlyIds, model).filter((id) => levelIdSet.has(id))
-
-            const spouseClusterIds = orderedIds(
-              Array.from(levelIdSet).filter(
-                (id) => id !== focusId && !siblingIds.has(id) && spouseLikeIds.has(id),
-              ),
-              model,
-            )
-
-            const cousinClusterIds = Array.from(levelIdSet).filter((id) => cousinBranchAnchorById.has(id))
-            const cousinClusterByAnchor = new Map<string, string[]>()
-            cousinClusterIds.forEach((id) => {
-              const anchorId = cousinBranchAnchorById.get(id)
-              if (!anchorId) return
-              const existing = cousinClusterByAnchor.get(anchorId) ?? []
-              existing.push(id)
-              cousinClusterByAnchor.set(anchorId, existing)
-            })
-
-            const orderedCousinAnchors = Array.from(cousinClusterByAnchor.keys()).sort((a, b) => {
-              const aPrimaryParent = parentSiblingPrimaryFocusParent.get(a)
-              const bPrimaryParent = parentSiblingPrimaryFocusParent.get(b)
-              const aParentIndex = aPrimaryParent ? (focusParentOrderIndex.get(aPrimaryParent) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER
-              const bParentIndex = bPrimaryParent ? (focusParentOrderIndex.get(bPrimaryParent) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER
-              if (aParentIndex !== bParentIndex) return aParentIndex - bParentIndex
-              return personSortKey(model.persons[a], a).localeCompare(personSortKey(model.persons[b], b))
-            })
-
-            const orderedCousinClusters = orderedCousinAnchors.flatMap((anchorId) =>
-              orderedIds(cousinClusterByAnchor.get(anchorId) ?? [], model),
-            )
-
-            const consumedIds = new Set([...coreSiblingOrder, ...spouseClusterIds, ...orderedCousinClusters])
-            const remainingIds = orderedIds(
-              Array.from(levelIdSet).filter((id) => !consumedIds.has(id)),
-              model,
-            )
-
-            return [...coreSiblingOrder, ...spouseClusterIds, ...orderedCousinClusters, ...remainingIds]
-          })()
-        : orderedIds(levelIds, model)
+    const sortedIds = focusRowResult?.orderedIds ?? orderedIds(levelIds, model)
 
     const cap = LEVEL_CAPS[level] ?? 10
     const visibleIds = sortedIds.slice(0, cap)
@@ -323,10 +283,30 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
     })
 
     if (hiddenCount > 0) {
+      const hiddenIds = sortedIds.slice(cap)
+      const overflowSummary =
+        level === 0 && focusRowResult
+          ? summarizeOverflowKinds(hiddenIds, {
+              focusId,
+              siblingIds,
+              spouseLikeIds,
+              cousinBranchAnchorById,
+              parentSiblingPrimaryFocusParent,
+              focusParentOrderIndex,
+            })
+          : undefined
+
+      const overflowParts = [
+        overflowSummary?.hiddenCouples ? `${overflowSummary.hiddenCouples} partners` : undefined,
+        overflowSummary?.hiddenSiblings ? `${overflowSummary.hiddenSiblings} siblings` : undefined,
+        overflowSummary?.hiddenCousins ? `${overflowSummary.hiddenCousins} cousins` : undefined,
+        overflowSummary?.hiddenOther ? `${overflowSummary.hiddenOther} other relatives` : undefined,
+      ].filter(Boolean)
+
       nodes.push({
         id: `${OVERFLOW_PREFIX}:${level}`,
         label: `+${hiddenCount} more`,
-        detail: 'Not shown to keep this view readable',
+        detail: overflowParts.length > 0 ? `Hidden: ${overflowParts.join(', ')}` : 'Not shown to keep this view readable',
         x: startX + visibleIds.length * COL_GAP,
         y: levelToY.get(level) ?? PADDING_Y,
         kind: 'overflow',
