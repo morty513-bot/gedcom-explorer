@@ -5,6 +5,7 @@ import type { GedcomModel } from './core/gedcom/types'
 import { FocusPerson } from './features/people/FocusPerson'
 import { PersonList } from './features/people/PersonList'
 import { FamilyTreeGraph } from './features/tree/FamilyTreeGraph'
+import { DemoDatasetPicker } from './features/demo/DemoDatasetPicker'
 import { GedcomUpload } from './features/upload/GedcomUpload'
 import './App.css'
 
@@ -42,7 +43,10 @@ function App() {
         {error ? <p className="error">{error}</p> : null}
       </header>
 
-      <GedcomUpload hasData={hasData} onLoaded={handleLoaded} />
+      <section className="ingest-row">
+        <DemoDatasetPicker onLoadDemo={handleLoaded} />
+        <GedcomUpload hasData={hasData} onLoaded={handleLoaded} />
+      </section>
 
       <FamilyTreeGraph
         model={model}

@@ -100,14 +100,43 @@ button {
   min-height: 40px;
 }
 
+.ingest-row {
+  display: grid;
+  gap: 0.65rem;
+}
+
 .upload-actions {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
 
-.upload-panel.compact {
-  padding: 0.75rem 1rem;
+.upload-panel.compact,
+.demo-panel.compact {
+  padding: 0.72rem 0.9rem;
+}
+
+.demo-panel h2,
+.upload-panel h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.demo-controls {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  margin-top: 0.45rem;
+}
+
+.demo-controls select {
+  min-height: 34px;
+  border: 1px solid #d4d4dd;
+  border-radius: 8px;
+  padding: 0.36rem 0.5rem;
+  background: #fff;
+  flex: 1;
+  min-width: 0;
 }
 
 .upload-compact-row {
@@ -306,6 +335,11 @@ button {
 
   .upload-actions > button {
     flex: 1 1 100%;
+  }
+
+  .demo-controls {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .small-button {
