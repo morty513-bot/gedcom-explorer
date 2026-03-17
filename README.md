@@ -46,6 +46,11 @@ Then upload `samples/sample-family.ged` in the app to test import and focus sele
 - `npm run build` - type-check and production build
 - `npm run preview` - preview production build
 
+## Deployment
+- Vite `base` is set to `/gedcom-explorer/` in `vite.config.ts`.
+- Built assets are generated for hosting under that subpath (for example: `https://<host>/gedcom-explorer/`).
+- If you deploy at a different path or root domain, update `base` before building.
+
 ## Sample GEDCOM for testing
 A synthetic fixture is included at:
 - `samples/sample-family.ged`

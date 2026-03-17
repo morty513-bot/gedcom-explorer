@@ -92,8 +92,6 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
       top: container.scrollTop,
     }
     draggedRef.current = false
-
-    container.setPointerCapture(event.pointerId)
   }
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -109,6 +107,7 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
       draggedRef.current = true
       suppressClickRef.current = true
       setIsDragging(true)
+      container.setPointerCapture(event.pointerId)
     }
 
     if (!draggedRef.current) return
@@ -117,12 +116,12 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
     container.scrollTop = start.top - dy
   }
 
-  const stopDragging = (event: React.PointerEvent<HTMLDivElement>) => {
+  const completeDragging = useCallback((pointerId: number) => {
     const container = scrollRef.current
-    if (dragPointerIdRef.current !== event.pointerId || !container) return
+    if (dragPointerIdRef.current !== pointerId) return
 
-    if (container.hasPointerCapture(event.pointerId)) {
-      container.releasePointerCapture(event.pointerId)
+    if (container && container.hasPointerCapture(pointerId)) {
+      container.releasePointerCapture(pointerId)
     }
 
     dragPointerIdRef.current = null
@@ -136,7 +135,25 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
     }
 
     draggedRef.current = false
+  }, [])
+
+  const stopDragging = (event: React.PointerEvent<HTMLDivElement>) => {
+    completeDragging(event.pointerId)
   }
+
+  useEffect(() => {
+    const handleWindowPointerUp = (event: PointerEvent) => {
+      completeDragging(event.pointerId)
+    }
+
+    window.addEventListener('pointerup', handleWindowPointerUp)
+    window.addEventListener('pointercancel', handleWindowPointerUp)
+
+    return () => {
+      window.removeEventListener('pointerup', handleWindowPointerUp)
+      window.removeEventListener('pointercancel', handleWindowPointerUp)
+    }
+  }, [completeDragging])
 
   if (!graph) {
     return (
