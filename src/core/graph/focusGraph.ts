@@ -1,7 +1,8 @@
 import type { Family, GedcomModel, Person } from '../gedcom/types'
 import { getFocusPersonDetails } from '../gedcom/selectors'
 import { inferredSiblingsOf, parentIdsOf } from '../gedcom/relationships'
-import { couplePairsInLevel, orderFocusRow, orderNonFocusRow, pairKey, summarizeOverflowKinds } from './focusRowLayout'
+import { orderFocusRow, orderNonFocusRow, summarizeOverflowKinds } from './focusRowLayout'
+import { buildLayoutPlan } from './layoutAbstraction'
 
 export interface GraphNode {
   id: string
@@ -111,45 +112,6 @@ function placeAtLevel(levelById: Map<string, number>, id: string, level: number)
   if (nextAbs < currentAbs || (nextAbs === currentAbs && level < current)) {
     levelById.set(id, level)
   }
-}
-
-function midpoint(values: number[]): number | undefined {
-  if (values.length === 0) return undefined
-  return values.reduce((sum, value) => sum + value, 0) / values.length
-}
-
-function resolveDesiredSlots(
-  ids: string[],
-  baseSlots: Map<string, number>,
-  desiredSlots: Map<string, number>,
-  lockedAdjacencyPairs: Set<string>,
-): Map<string, number> {
-  const orderedIds = [...ids]
-  const slots = orderedIds.map((id) => desiredSlots.get(id) ?? baseSlots.get(id) ?? 0)
-
-  const resolved = [...slots]
-  for (let i = 1; i < resolved.length; i += 1) {
-    resolved[i] = Math.max(resolved[i], resolved[i - 1] + 1)
-  }
-  for (let i = resolved.length - 2; i >= 0; i -= 1) {
-    resolved[i] = Math.min(resolved[i], resolved[i + 1] - 1)
-  }
-
-  // Keep locked couple pairs visually adjacent.
-  for (let i = 0; i < orderedIds.length - 1; i += 1) {
-    const leftId = orderedIds[i]
-    const rightId = orderedIds[i + 1]
-    if (!lockedAdjacencyPairs.has(pairKey(leftId, rightId))) continue
-    const left = resolved[i]
-    const right = resolved[i + 1]
-    if (right - left > 1.4) {
-      const mid = (left + right) / 2
-      resolved[i] = mid - 0.5
-      resolved[i + 1] = mid + 0.5
-    }
-  }
-
-  return new Map(orderedIds.map((id, index) => [id, resolved[index]]))
 }
 
 export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGraph | undefined {
@@ -265,7 +227,6 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
   const visibleIdsByLevel = new Map<number, string[]>()
   const hiddenIdsByLevel = new Map<number, string[]>()
   const overflowSummaryByLevel = new Map<number, ReturnType<typeof summarizeOverflowKinds> | undefined>()
-  const lockedAdjacencyPairsByLevel = new Map<number, Set<string>>()
 
   orderedLevels.forEach((level) => {
     const levelIds = relativeIdsByLevel.get(level) ?? []
@@ -297,10 +258,6 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
     visibleIdsByLevel.set(level, visibleIds)
     hiddenIdsByLevel.set(level, hiddenIds)
 
-    const visibleSet = new Set(visibleIds)
-    const lockedPairs = new Set(couplePairsInLevel(visibleSet, model).map(([a, b]) => pairKey(a, b)))
-    lockedAdjacencyPairsByLevel.set(level, lockedPairs)
-
     if (hiddenIds.length > 0 && level === 0 && focusRowResult) {
       overflowSummaryByLevel.set(
         level,
@@ -316,59 +273,14 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
     }
   })
 
+  const layoutPlan = buildLayoutPlan(orderedLevels, visibleIdsByLevel, model)
   const slotById = new Map<string, number>()
-  visibleIdsByLevel.forEach((ids) => ids.forEach((id, index) => slotById.set(id, index)))
-
-  for (let pass = 0; pass < 3; pass += 1) {
-    orderedLevels.forEach((level) => {
-      const ids = visibleIdsByLevel.get(level) ?? []
-      if (ids.length === 0) return
-
-      const desired = new Map<string, number>()
-      ids.forEach((id) => {
-        const parentAnchors = model.persons[id]
-          ?.familyAsChildIds.flatMap((familyId) => {
-            const family = model.families[familyId]
-            if (!family) return []
-            return [family.husbandId, family.wifeId]
-              .filter((parentId): parentId is string => typeof parentId === 'string')
-              .filter((parentId) => slotById.has(parentId))
-              .map((parentId) => slotById.get(parentId) ?? 0)
-          })
-          .filter((v): v is number => Number.isFinite(v)) ?? []
-
-        const parentMidpoint = midpoint(parentAnchors)
-        if (parentMidpoint !== undefined) desired.set(id, parentMidpoint)
-      })
-
-      resolveDesiredSlots(ids, slotById, desired, lockedAdjacencyPairsByLevel.get(level) ?? new Set()).forEach(
-        (slot, id) => slotById.set(id, slot),
-      )
-    });
-
-    [...orderedLevels].reverse().forEach((level) => {
-      const ids = visibleIdsByLevel.get(level) ?? []
-      if (ids.length === 0) return
-
-      const desired = new Map<string, number>()
-      ids.forEach((id) => {
-        const childAnchors = model.persons[id]
-          ?.familyAsSpouseIds.flatMap((familyId) => {
-            const family = model.families[familyId]
-            if (!family) return []
-            return family.childIds.filter((childId) => slotById.has(childId)).map((childId) => slotById.get(childId) ?? 0)
-          })
-          .filter((v): v is number => Number.isFinite(v)) ?? []
-
-        const childCentroid = midpoint(childAnchors)
-        if (childCentroid !== undefined) desired.set(id, childCentroid)
-      })
-
-      resolveDesiredSlots(ids, slotById, desired, lockedAdjacencyPairsByLevel.get(level) ?? new Set()).forEach(
-        (slot, id) => slotById.set(id, slot),
-      )
-    })
-  }
+  orderedLevels.forEach((level) => {
+    const row = layoutPlan.rows.get(level)
+    if (!row) return
+    visibleIdsByLevel.set(level, row.orderedIds)
+    row.slots.forEach((slot, id) => slotById.set(id, slot))
+  })
 
   const nodes: GraphNode[] = []
 

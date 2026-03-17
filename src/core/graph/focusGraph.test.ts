@@ -304,6 +304,48 @@ describe('buildFocusGraph focus-row layout policy', () => {
     expect(Math.max(fatherIndex, motherIndex)).toBeLessThan(Math.min(uncleIndex, auntIndex))
   })
 
+  it('keeps descendant subtree ordering coherent across sibling branches', () => {
+    const model: GedcomModel = {
+      persons: {
+        FOCUS: person('FOCUS', 'Focus', { familyAsSpouseIds: ['F_ROOT'] }),
+        SPOUSE: person('SPOUSE', 'Spouse', { familyAsSpouseIds: ['F_ROOT'] }),
+        A: person('A', 'Alpha Child', { familyAsChildIds: ['F_ROOT'], familyAsSpouseIds: ['F_A'] }),
+        B: person('B', 'Beta Child', { familyAsChildIds: ['F_ROOT'], familyAsSpouseIds: ['F_B'] }),
+        A_PARTNER: person('A_PARTNER', 'Alpha Partner', { familyAsSpouseIds: ['F_A'] }),
+        B_PARTNER: person('B_PARTNER', 'Beta Partner', { familyAsSpouseIds: ['F_B'] }),
+        A1: person('A1', 'Alpha Grandchild 1', { familyAsChildIds: ['F_A'] }),
+        A2: person('A2', 'Alpha Grandchild 2', { familyAsChildIds: ['F_A'] }),
+        B1: person('B1', 'Beta Grandchild 1', { familyAsChildIds: ['F_B'] }),
+        B2: person('B2', 'Beta Grandchild 2', { familyAsChildIds: ['F_B'] }),
+      },
+      families: {
+        F_ROOT: family('F_ROOT', { husbandId: 'FOCUS', wifeId: 'SPOUSE', childIds: ['A', 'B'] }),
+        F_A: family('F_A', { husbandId: 'A', wifeId: 'A_PARTNER', childIds: ['A1', 'A2'] }),
+        F_B: family('F_B', { husbandId: 'B', wifeId: 'B_PARTNER', childIds: ['B1', 'B2'] }),
+      },
+    }
+
+    const graph = buildFocusGraph(model, 'FOCUS')
+    expect(graph).toBeDefined()
+
+    const byId = new Map((graph?.nodes ?? []).map((node) => [node.id, node]))
+    const a = byId.get('A')
+    const b = byId.get('B')
+    const aChildren = ['A1', 'A2'].map((id) => byId.get(id)).filter((n): n is NonNullable<typeof n> => Boolean(n))
+    const bChildren = ['B1', 'B2'].map((id) => byId.get(id)).filter((n): n is NonNullable<typeof n> => Boolean(n))
+
+    expect(a && b).toBeTruthy()
+    expect(aChildren.length).toBe(2)
+    expect(bChildren.length).toBe(2)
+
+    const aCentroid = aChildren.reduce((sum, node) => sum + node.x, 0) / aChildren.length
+    const bCentroid = bChildren.reduce((sum, node) => sum + node.x, 0) / bChildren.length
+
+    expect((a?.x ?? 0)).toBeLessThan(b?.x ?? 0)
+    expect(aCentroid).toBeLessThan(bCentroid)
+    expect(Math.max(...aChildren.map((node) => node.x))).toBeLessThan(Math.min(...bChildren.map((node) => node.x)))
+  })
+
   it('caps level 0 with a clear overflow node when too many inferred siblings exist', () => {
     const persons: Record<string, Person> = {
       P1: person('P1', 'Parent One', { familyAsSpouseIds: ['F_MAIN', 'F_HALF'] }),
