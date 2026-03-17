@@ -1,7 +1,7 @@
 import type { Family, GedcomModel, Person } from '../gedcom/types'
 import { getFocusPersonDetails } from '../gedcom/selectors'
 import { inferredSiblingsOf, parentIdsOf } from '../gedcom/relationships'
-import { orderFocusRow, summarizeOverflowKinds } from './focusRowLayout'
+import { couplePairsInLevel, orderFocusRow, orderNonFocusRow, pairKey, summarizeOverflowKinds } from './focusRowLayout'
 
 export interface GraphNode {
   id: string
@@ -122,7 +122,7 @@ function resolveDesiredSlots(
   ids: string[],
   baseSlots: Map<string, number>,
   desiredSlots: Map<string, number>,
-  spouseLikeIds: Set<string>,
+  lockedAdjacencyPairs: Set<string>,
 ): Map<string, number> {
   const orderedIds = [...ids]
   const slots = orderedIds.map((id) => desiredSlots.get(id) ?? baseSlots.get(id) ?? 0)
@@ -135,11 +135,11 @@ function resolveDesiredSlots(
     resolved[i] = Math.min(resolved[i], resolved[i + 1] - 1)
   }
 
-  // Keep partner pairs visually adjacent where possible.
+  // Keep locked couple pairs visually adjacent.
   for (let i = 0; i < orderedIds.length - 1; i += 1) {
     const leftId = orderedIds[i]
     const rightId = orderedIds[i + 1]
-    if (!spouseLikeIds.has(leftId) || !spouseLikeIds.has(rightId)) continue
+    if (!lockedAdjacencyPairs.has(pairKey(leftId, rightId))) continue
     const left = resolved[i]
     const right = resolved[i + 1]
     if (right - left > 1.4) {
@@ -265,9 +265,17 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
   const visibleIdsByLevel = new Map<number, string[]>()
   const hiddenIdsByLevel = new Map<number, string[]>()
   const overflowSummaryByLevel = new Map<number, ReturnType<typeof summarizeOverflowKinds> | undefined>()
+  const lockedAdjacencyPairsByLevel = new Map<number, Set<string>>()
 
   orderedLevels.forEach((level) => {
     const levelIds = relativeIdsByLevel.get(level) ?? []
+
+    const pinnedIds =
+      level === -1
+        ? new Set(parentIds)
+        : level === 1
+          ? new Set(childIds)
+          : new Set<string>()
 
     const focusRowResult =
       level === 0
@@ -281,13 +289,17 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
           })
         : undefined
 
-    const sortedIds = focusRowResult?.orderedIds ?? orderedIds(levelIds, model)
+    const sortedIds = focusRowResult?.orderedIds ?? orderNonFocusRow(levelIds, model, pinnedIds)
     const cap = LEVEL_CAPS[level] ?? 10
     const visibleIds = sortedIds.slice(0, cap)
     const hiddenIds = sortedIds.slice(cap)
 
     visibleIdsByLevel.set(level, visibleIds)
     hiddenIdsByLevel.set(level, hiddenIds)
+
+    const visibleSet = new Set(visibleIds)
+    const lockedPairs = new Set(couplePairsInLevel(visibleSet, model).map(([a, b]) => pairKey(a, b)))
+    lockedAdjacencyPairsByLevel.set(level, lockedPairs)
 
     if (hiddenIds.length > 0 && level === 0 && focusRowResult) {
       overflowSummaryByLevel.set(
@@ -329,7 +341,9 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
         if (parentMidpoint !== undefined) desired.set(id, parentMidpoint)
       })
 
-      resolveDesiredSlots(ids, slotById, desired, spouseLikeIds).forEach((slot, id) => slotById.set(id, slot))
+      resolveDesiredSlots(ids, slotById, desired, lockedAdjacencyPairsByLevel.get(level) ?? new Set()).forEach(
+        (slot, id) => slotById.set(id, slot),
+      )
     });
 
     [...orderedLevels].reverse().forEach((level) => {
@@ -350,7 +364,9 @@ export function buildFocusGraph(model: GedcomModel, personId?: string): FocusGra
         if (childCentroid !== undefined) desired.set(id, childCentroid)
       })
 
-      resolveDesiredSlots(ids, slotById, desired, spouseLikeIds).forEach((slot, id) => slotById.set(id, slot))
+      resolveDesiredSlots(ids, slotById, desired, lockedAdjacencyPairsByLevel.get(level) ?? new Set()).forEach(
+        (slot, id) => slotById.set(id, slot),
+      )
     })
   }
 

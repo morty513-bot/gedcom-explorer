@@ -264,6 +264,46 @@ describe('buildFocusGraph focus-row layout policy', () => {
     expect(cousinIndexes[0]).toBeGreaterThan(siblingIndexes[2])
   })
 
+  it('keeps the parent couple adjacent and ahead of parent siblings on level -1', () => {
+    const model: GedcomModel = {
+      persons: {
+        GP_H1: person('GP_H1', 'Grandpa H', { familyAsSpouseIds: ['F_GRAND_H'] }),
+        GP_H2: person('GP_H2', 'Grandma H', { familyAsSpouseIds: ['F_GRAND_H'] }),
+        GP_W1: person('GP_W1', 'Grandpa W', { familyAsSpouseIds: ['F_GRAND_W'] }),
+        GP_W2: person('GP_W2', 'Grandma W', { familyAsSpouseIds: ['F_GRAND_W'] }),
+
+        FATHER: person('FATHER', 'Father', { familyAsChildIds: ['F_GRAND_H'], familyAsSpouseIds: ['F_MAIN'] }),
+        MOTHER: person('MOTHER', 'Mother', { familyAsChildIds: ['F_GRAND_W'], familyAsSpouseIds: ['F_MAIN'] }),
+        UNCLE_H: person('UNCLE_H', 'Uncle H', { familyAsChildIds: ['F_GRAND_H'] }),
+        AUNT_W: person('AUNT_W', 'Aunt W', { familyAsChildIds: ['F_GRAND_W'] }),
+
+        FOCUS: person('FOCUS', 'Focus', { familyAsChildIds: ['F_MAIN'] }),
+      },
+      families: {
+        F_GRAND_H: family('F_GRAND_H', { husbandId: 'GP_H1', wifeId: 'GP_H2', childIds: ['FATHER', 'UNCLE_H'] }),
+        F_GRAND_W: family('F_GRAND_W', { husbandId: 'GP_W1', wifeId: 'GP_W2', childIds: ['MOTHER', 'AUNT_W'] }),
+        F_MAIN: family('F_MAIN', { husbandId: 'FATHER', wifeId: 'MOTHER', childIds: ['FOCUS'] }),
+      },
+    }
+
+    const graph = buildFocusGraph(model, 'FOCUS')
+    expect(graph).toBeDefined()
+
+    const parentY = graph?.nodes.find((node) => node.id === 'FATHER')?.y
+    const row = (graph?.nodes ?? [])
+      .filter((node) => node.y === parentY && node.selectable !== false)
+      .sort((a, b) => a.x - b.x)
+      .map((node) => node.id)
+
+    const fatherIndex = row.indexOf('FATHER')
+    const motherIndex = row.indexOf('MOTHER')
+    const uncleIndex = row.indexOf('UNCLE_H')
+    const auntIndex = row.indexOf('AUNT_W')
+
+    expect(Math.abs(fatherIndex - motherIndex)).toBe(1)
+    expect(Math.max(fatherIndex, motherIndex)).toBeLessThan(Math.min(uncleIndex, auntIndex))
+  })
+
   it('caps level 0 with a clear overflow node when too many inferred siblings exist', () => {
     const persons: Record<string, Person> = {
       P1: person('P1', 'Parent One', { familyAsSpouseIds: ['F_MAIN', 'F_HALF'] }),

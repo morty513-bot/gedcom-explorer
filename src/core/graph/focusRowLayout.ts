@@ -24,6 +24,7 @@ interface RowBlock {
   kind: 'couple' | 'sibling' | 'cousin' | 'other'
   sortKey: string
   includesFocus: boolean
+  pinned: boolean
 }
 
 interface BucketedBlock {
@@ -47,7 +48,11 @@ function personSortKey(model: GedcomModel, personId: string): string {
   return `${name}\u0000${birth}\u0000${personId}`
 }
 
-function couplePairsInLevel(levelIds: Set<string>, model: GedcomModel): Array<[string, string]> {
+export function pairKey(a: string, b: string): string {
+  return a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`
+}
+
+export function couplePairsInLevel(levelIds: Set<string>, model: GedcomModel): Array<[string, string]> {
   const candidates = new Set<string>()
 
   Object.values(model.families).forEach((family) => {
@@ -70,6 +75,8 @@ function couplePairsInLevel(levelIds: Set<string>, model: GedcomModel): Array<[s
       return aKey.localeCompare(bKey)
     })
 
+  // A person can appear in multiple families. On one row we can only lock one adjacency;
+  // greedily choose the first deterministic pair.
   const matched = new Set<string>()
   const output: Array<[string, string]> = []
 
@@ -99,11 +106,12 @@ function cousinAnchorOrder(id: string, meta: FocusRowPersonMeta): number {
 }
 
 function blockSortTuple(block: RowBlock, meta: FocusRowPersonMeta): string {
+  const pinnedPriority = block.pinned ? '0' : '1'
   const kindPriority = block.kind === 'couple' ? '0' : block.kind === 'sibling' ? '1' : block.kind === 'cousin' ? '2' : '3'
   const focusPriority = block.includesFocus ? '0' : '1'
   const cousinAnchor = Math.min(...block.ids.map((id) => cousinAnchorOrder(id, meta)))
   const cousinAnchorPart = Number.isFinite(cousinAnchor) ? String(cousinAnchor).padStart(4, '0') : '9999'
-  return `${kindPriority}\u0000${focusPriority}\u0000${cousinAnchorPart}\u0000${block.sortKey}`
+  return `${pinnedPriority}\u0000${kindPriority}\u0000${focusPriority}\u0000${cousinAnchorPart}\u0000${block.sortKey}`
 }
 
 export function orderFocusRow(levelIds: string[], model: GedcomModel, meta: FocusRowPersonMeta): FocusRowOrderingResult {
@@ -122,6 +130,7 @@ export function orderFocusRow(levelIds: string[], model: GedcomModel, meta: Focu
       kind: 'couple',
       sortKey: ids.map((id) => personSortKey(model, id)).join('\u0000'),
       includesFocus,
+      pinned: includesFocus,
     })
   })
 
@@ -157,6 +166,7 @@ export function orderFocusRow(levelIds: string[], model: GedcomModel, meta: Focu
         kind: blockKind(ids, meta),
         sortKey: ids.map((id) => personSortKey(model, id)).join('\u0000'),
         includesFocus: ids.includes(meta.focusId),
+        pinned: ids.includes(meta.focusId),
       })
     })
 
@@ -172,6 +182,47 @@ export function orderFocusRow(levelIds: string[], model: GedcomModel, meta: Focu
       hiddenOther: 0,
     },
   }
+}
+
+export function orderNonFocusRow(levelIds: string[], model: GedcomModel, pinnedIds: Set<string>): string[] {
+  const levelIdSet = new Set(levelIds)
+  const pairedIds = new Set<string>()
+  const blocks: Array<{ ids: string[]; sortKey: string; pinned: boolean; isCouple: boolean }> = []
+
+  couplePairsInLevel(levelIdSet, model).forEach(([a, b]) => {
+    pairedIds.add(a)
+    pairedIds.add(b)
+    const ids = [a, b].sort((x, y) => personSortKey(model, x).localeCompare(personSortKey(model, y)))
+    blocks.push({
+      ids,
+      sortKey: ids.map((id) => personSortKey(model, id)).join('\u0000'),
+      pinned: ids.some((id) => pinnedIds.has(id)),
+      isCouple: true,
+    })
+  })
+
+  const singles = Array.from(levelIdSet)
+    .filter((id) => !pairedIds.has(id))
+    .sort((a, b) => personSortKey(model, a).localeCompare(personSortKey(model, b)))
+
+  singles.forEach((id) => {
+    blocks.push({
+      ids: [id],
+      sortKey: personSortKey(model, id),
+      pinned: pinnedIds.has(id),
+      isCouple: false,
+    })
+  })
+
+  return blocks
+    .sort((a, b) => {
+      const pinCmp = Number(b.pinned) - Number(a.pinned)
+      if (pinCmp !== 0) return pinCmp
+      const coupleCmp = Number(b.isCouple) - Number(a.isCouple)
+      if (coupleCmp !== 0) return coupleCmp
+      return a.sortKey.localeCompare(b.sortKey)
+    })
+    .flatMap((block) => block.ids)
 }
 
 export function summarizeOverflowKinds(hiddenIds: string[], meta: FocusRowPersonMeta): FocusRowOrderingResult['overflowBreakdown'] {
