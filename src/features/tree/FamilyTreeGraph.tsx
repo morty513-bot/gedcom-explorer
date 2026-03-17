@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { GedcomModel } from '../../core/gedcom/types'
 import { buildFocusGraph } from '../../core/graph/focusGraph'
 
@@ -42,13 +42,21 @@ function parentChildEdgeTooltip(parentLabels: string[], childLabel: string): str
   return `Parent-child: ${parentLabels[0]} + ${parentLabels[1]} → ${childLabel}`
 }
 
+const DRAG_THRESHOLD_PX = 6
+
 export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Props) {
   const graph = useMemo(() => buildFocusGraph(model, focusedPersonId), [model, focusedPersonId])
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!graph || !focusedPersonId) return
-    const focusNode = graph.nodes.find((node) => node.id === focusedPersonId)
+  const dragPointerIdRef = useRef<number | null>(null)
+  const dragStartRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null)
+  const draggedRef = useRef(false)
+  const suppressClickRef = useRef(false)
+  const [isDragging, setIsDragging] = useState(false)
+
+  const centerOnNode = useCallback((nodeId?: string) => {
+    if (!graph || !nodeId) return
+    const focusNode = graph.nodes.find((node) => node.id === nodeId)
     const container = scrollRef.current
     if (!focusNode || !container) return
 
@@ -60,7 +68,75 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
       top: Math.min(targetTop, Math.max(0, container.scrollHeight - container.clientHeight)),
       behavior: 'smooth',
     })
-  }, [graph, focusedPersonId])
+  }, [graph])
+
+  useEffect(() => {
+    if (!graph || !focusedPersonId) return
+    const id = requestAnimationFrame(() => centerOnNode(focusedPersonId))
+    return () => cancelAnimationFrame(id)
+  }, [centerOnNode, graph, focusedPersonId])
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'mouse') return
+    if (dragPointerIdRef.current !== null) return
+    if (event.button !== 0) return
+
+    const container = scrollRef.current
+    if (!container) return
+
+    dragPointerIdRef.current = event.pointerId
+    dragStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      left: container.scrollLeft,
+      top: container.scrollTop,
+    }
+    draggedRef.current = false
+
+    container.setPointerCapture(event.pointerId)
+  }
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragPointerIdRef.current !== event.pointerId) return
+    const start = dragStartRef.current
+    const container = scrollRef.current
+    if (!start || !container) return
+
+    const dx = event.clientX - start.x
+    const dy = event.clientY - start.y
+
+    if (!draggedRef.current && Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
+      draggedRef.current = true
+      suppressClickRef.current = true
+      setIsDragging(true)
+    }
+
+    if (!draggedRef.current) return
+
+    container.scrollLeft = start.left - dx
+    container.scrollTop = start.top - dy
+  }
+
+  const stopDragging = (event: React.PointerEvent<HTMLDivElement>) => {
+    const container = scrollRef.current
+    if (dragPointerIdRef.current !== event.pointerId || !container) return
+
+    if (container.hasPointerCapture(event.pointerId)) {
+      container.releasePointerCapture(event.pointerId)
+    }
+
+    dragPointerIdRef.current = null
+    dragStartRef.current = null
+    setIsDragging(false)
+
+    if (draggedRef.current) {
+      window.setTimeout(() => {
+        suppressClickRef.current = false
+      }, 0)
+    }
+
+    draggedRef.current = false
+  }
 
   if (!graph) {
     return (
@@ -76,7 +152,14 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
   return (
     <section className="panel graph-panel">
       <h2>Family Tree</h2>
-      <div className="graph-scroll" ref={scrollRef}>
+      <div
+        className={`graph-scroll desktop-draggable ${isDragging ? 'dragging' : ''}`}
+        ref={scrollRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={stopDragging}
+        onPointerCancel={stopDragging}
+      >
         <svg
           viewBox={`0 0 ${graph.width} ${graph.height}`}
           width={graph.width}
@@ -118,7 +201,9 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
             const x2 = to.x
             const y2 = to.y - 20
 
-            const parentLabels = parentNodes.map((node) => node?.label).filter((label): label is string => Boolean(label))
+            const parentLabels = parentNodes
+              .map((node) => node?.label)
+              .filter((label): label is string => Boolean(label))
 
             return (
               <g key={`${edge.from}-${edge.to}-${index}`}>
@@ -138,7 +223,7 @@ export function FamilyTreeGraph({ model, focusedPersonId, onSelectPerson }: Prop
               role={node.selectable === false ? undefined : 'button'}
               tabIndex={node.selectable === false ? -1 : 0}
               onClick={() => {
-                if (node.selectable === false) return
+                if (suppressClickRef.current || node.selectable === false) return
                 onSelectPerson(node.id)
               }}
               onKeyDown={(event) => {

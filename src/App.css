@@ -177,6 +177,15 @@ button {
   touch-action: pan-x pan-y;
 }
 
+.graph-scroll.desktop-draggable {
+  cursor: grab;
+}
+
+.graph-scroll.desktop-draggable.dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .graph-scroll svg {
   display: block;
 }
@@ -205,6 +214,10 @@ button {
 
 .graph-node {
   cursor: pointer;
+}
+
+.graph-scroll.desktop-draggable.dragging .graph-node {
+  cursor: grabbing;
 }
 
 .graph-node.focus rect {
