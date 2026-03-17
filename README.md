@@ -60,7 +60,7 @@ Then either:
 The app bundles these demos (available from the **Try a demo dataset** selector):
 - `sample-family.ged`
 - `simple-extended-family.ged`
-- `uk-royal-simple.ged`
+- `uk-royal-simple.ged` (extended synthetic UK royal descendants dataset from Elizabeth Windsor downward)
 
 These source files are also available under `samples/` for manual upload testing.
 
